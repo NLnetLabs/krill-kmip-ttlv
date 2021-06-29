@@ -1,3 +1,5 @@
+[![CI](https://github.com/NLnetLabs/krill-kmip-ttlv/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NLnetLabs/krill-kmip-ttlv/actions/workflows/ci.yml)
+
 # krill-kmip-ttlv - A library for (de)serializing KMIP TTLV
 
 [Krill](https://nlnetlabs.nl/projects/rpki/krill/):
