@@ -325,21 +325,21 @@ impl<'de> VariantAccess<'de> for TtlvEnumVariantAccess<'de> {
     where
         T: serde::de::DeserializeSeed<'de>,
     {
-        todo!()
+        unimplemented!()
     }
 
     fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        unimplemented!()
     }
 
     fn struct_variant<V>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        unimplemented!()
     }
 }
 
@@ -355,7 +355,7 @@ impl<'de> Deserializer<'de> for &mut TtlvEnumVariantAccess<'de> {
     where
         V: Visitor<'de>,
     {
-        todo!()
+        unimplemented!()
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
@@ -407,7 +407,7 @@ impl<'de> VariantAccess<'de> for TtlvEnumOneVariantAccess<'de> {
 
     fn unit_variant(self) -> Result<()> {
         //Ok(())
-        todo!()
+        unimplemented!()
     }
 
     fn newtype_variant_seed<T>(mut self, seed: T) -> Result<T::Value>
@@ -421,14 +421,14 @@ impl<'de> VariantAccess<'de> for TtlvEnumOneVariantAccess<'de> {
     where
         V: Visitor<'de>,
     {
-        todo!()
+        unimplemented!()
     }
 
     fn struct_variant<V>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        unimplemented!()
     }
 }
 
@@ -444,7 +444,7 @@ impl<'de> Deserializer<'de> for &mut TtlvEnumOneVariantAccess<'de> {
     where
         V: Visitor<'de>,
     {
-        todo!()
+        unimplemented!()
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
@@ -611,7 +611,7 @@ impl<'de> Deserializer<'de> for &mut TtlvStructureFieldAccess<'de> {
                 Ok(r)
             }
             ItemType::Boolean => {
-                todo!()
+                unimplemented!()
             }
             ItemType::TextString => {
                 let v = TtlvTextString::read(&mut self.src)?;
