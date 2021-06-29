@@ -94,7 +94,7 @@ Likewise rather than process and/or index into an arbitrary sequence of TTLV res
 
 ### Alternatives considered
 
-The Krill KMIP prototype work was based on the Visa [ttlv](https://github.com/visa/ttlv) and [kmip](https://github.com/visa/kmip) GitHub projects but will not used beyond the prototype as they are very low level, quite new, not available on crates.io, and lacking a lot of the KMIP business types and request/response definitions that Krill needs.
+The Krill KMIP prototype work was based on the Visa [ttlv](https://github.com/visa/ttlv) and [kmip](https://github.com/visa/kmip) GitHub projects but these will not used beyond the prototype as they are very low level, quite new, not available on crates.io, and lacking a lot of the KMIP business types and request/response definitions that Krill needs.
 
 Initially I avoided writing a Serde (de)serializer as at first glance it seems like overkill and/or complex. However, prototyped approaches based on custom traits or use of existing binary serialization and/or TLV crates led to complex and/or magic code and/or messy complicated implementation of non-standard trait interfaces.
 
