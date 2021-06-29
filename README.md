@@ -19,7 +19,7 @@ This crate offers a **partial implementation** of KMIP v1.0 **TTLV** (de)seriali
 
 The primary responsibilities of this crate are handling the need to write the length _before_ knowing how long the _value_ will be, translating Rust types to/from TTLV types, guiding creation of correct request structures and offering useful diagnostic messages if response structures cannot be parsed.
 
-This crate is one of potentially several crates that will be implemented to add the ability to Krill to interact with KMIP acompliant servers. The current thinking is that the work consists of separate chunks for TTLV (de)serialization, KMIP business object definitions, client request/response API and the TCP+TLS client.
+This crate is one of potentially several crates that will be implemented to add the ability to Krill to interact with KMIP compliant servers. The current thinking is that the work consists of separate chunks for TTLV (de)serialization, KMIP business object definitions, client request/response API and the TCP+TLS client.
 
 Note: The scope is limited to TTLV-over-TLS. Support for HTTPS instead of TLS and/or XML and/or JSON instead of TTLV binary encoding are not planned at this time as all KMIP server implementations are required to support TTLV-over-TLS.
 
