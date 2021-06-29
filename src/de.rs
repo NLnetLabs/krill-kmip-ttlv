@@ -78,7 +78,7 @@
 //!
 //! When deserializing, the structure to expect in the payload depends on the "Operation" enum field value in the
 //! payload wrapper. Given an enum type as input, Serde cannot know which of the variants it is supposed to use to
-//! populate the users data structure as it knows know about the "Operation" value.
+//! populate the users data structure as it knows nothing about the "Operation" value.
 //!
 //! The solution is to teach it about the "Operation" value like so:
 //!
