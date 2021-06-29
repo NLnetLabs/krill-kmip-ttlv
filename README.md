@@ -98,8 +98,8 @@ Likewise rather than process and/or index into an arbitrary sequence of TTLV res
 
 The Krill KMIP prototype work was based on the Visa [ttlv](https://github.com/visa/ttlv) and [kmip](https://github.com/visa/kmip) GitHub projects but these will not used beyond the prototype as they are very low level, quite new, not available on crates.io, and lacking a lot of the KMIP business types and request/response definitions that Krill needs.
 
-Initially I avoided writing a Serde (de)serializer as at first glance it seems like overkill and/or complex. However, prototyped approaches based on custom traits or use of existing binary serialization and/or TLV crates led to complex and/or magic code and/or messy complicated implementation of non-standard trait interfaces.
+Initially I avoided writing a Serde (de)serializer as at first glance it seems like overkill and/or complex. However, prototyped approaches based on custom traits or use of existing binary serialization and/or TLV crates led to complex and/or magic code and/or messy complicated implementation of non-standard trait interfaces, or didn't offer the kind of interface I wanted consumers to interact with.
 
-Serde is good enabling business types to remain separate from and flexibly coupled to the underlying serialized form and is equally powerful and elegant at both deserialization AND serialization, while alternative crates tended to be better and stronger at one or the other.
+Serde is good at enabling business types to remain separate from and flexibly coupled to the underlying serialized form and is equally powerful and elegant at both deserialization AND serialization, while alternative crates tended to be better and stronger at one or the other.
 
 Some of the crates evaluated included (in alphabetic order) [deku](https://lib.rs/crates/deku), [nom](https://lib.rs/crates/nom), [simple_parse](https://lib.rs/crates/simple_parse) and [simple-tlv](https://lib.rs/crates/simple-tlv) along with helper crates for handling bytes or type conversions or adding useful derives automatically. The current version has very few dependencies, the main one being serde.
