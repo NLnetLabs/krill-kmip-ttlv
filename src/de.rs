@@ -1,5 +1,117 @@
 //! Deserialize TTLV data to a Rust data structure.
-
+//!
+//! # Basic usage
+//!
+//! ```
+//! #[derive(Deserialize)]
+//! #[serde(rename = "0xAABBCC")]
+//! struct User {
+//!     #[serde(rename = "0xDDEEFF")]
+//!     some_field: i32
+//! }
+//! 
+//! let res: User = from_slice(bytes)?;
+//! ```
+//!
+//! The bytes in the slice are encoded according to the KMIP 1.0 TTLV encoding rules. In this example the data
+//! represents a single TTLV structure whose "tag" code is 0xAABBCC, and the structure contains a single integer field
+//! whose "tag" code is 0xDDEEFF.
+//!
+//! In TTLV format both the outer structure and the inner field are represented as TTLV "items" which have the byte form
+//! when represented using hexadecimal as follows:
+//!
+//! ```
+//!      TA TA TA TY LE LE LE LE VA VA VA VA VA VA VA VA VA VA VA VA
+//! e.g. AA BB CC 01 00 00 00 12 DD EE FF 02 00 00 00 04 00 00 00 01
+//!
+//! i.e.                         TA TA TA TY LE LE LE LE VA VA VA VA
+//!                              DD EE FF 02 00 00 00 04 00 00 00 01
+//! ```
+//!
+//! Where:
+//!   - TA denotes 3 "tag" code bytes, e.g. the outer struct tag code is 0xAABBCC
+//!   - TY denotes 1 "type" code byte, e.g. the outer struct has tyoe 0x01 denoting a TTLV structure
+//!   - LE denotes 4 "length" bytes, e.g. the outer struct has 12 value bytes
+//!   - VA denotes a variable number of "value" bytes, in this case they define another TTLV item representing a type 0x2
+//!     TTLV 32-bit (4 byte) integer field with value 0x00000001.
+//!
+//! # How it works
+//!
+//! Behind the scenes this will do something like this:
+//!
+//! ```
+//!    --> struct User::deserialize( TtlvDeserializer::from_slice(bytes) )
+//!         --> TtlvDeserializer::deserialize_struct()
+//!             --> visitor.visit_map(TtlvStructureFieldAccess::new(cursor.clone()))
+//! ```
+//! 
+//! The map visitor will now look for keys matching the field names (or serde renames) in the User structure, and will
+//! invoke deserializer functions corresponding to the Rust type of the corresponding User structure field values, or
+//! `deserialize_any` if the `Deserializer` doesn't support the particular type.
+//! 
+//! - User struct keys are processed by `fn deserialize_identifier()`. Serde expects one of the `visit_str` family of
+//!   functions to be invoked with the same text as either the field name in the User struct or the
+//!   `#[serde(rename = "xxx")]` "xxx" value defined by the user on the User struct field.
+//! 
+//! - Primitive fields are handled by `fn deserialize_any()`, including the non-primitive case of a complex enum
+//!   variant.
+//! 
+//! - Simple structures that wrap just a single value are handled by `fn deserialize_newtype_struct()` which in turn
+//!   will invoke any of the other handlers.
+//! 
+//! - Enums over single values are handled by `fn deserialize_enum()` which in turn uses either `TtlvEnumVariantAccess`
+//!   or `TtlvEnumOneVariantAccess` to invoke any of the other handlers, both structs are only partially implemented.
+//!   `TtlvEnumVariantAccess` keeps a record in the parent `TtlvStructureFieldAccess` of which enum tags have which
+//!   values. These are then looked up when deciding which enum variant to populate in cases where
+//!   `#[serde(rename = "if A==B")]` are defined.
+//! 
+//! - Structures are handled by `fn deserialize_struct()` which recurses into `self` as `MapAccess`.
+//! 
+//! - Sequences (i.e. `Vec<_>`) are handled by `fn deserialize_seq()` with the assistance of `self` as `SeqAccess`.
+//!
+//! # Real world application
+//!
+//! Its unlikely that you'll need to define a single hierarchy of TTLV data types to represent your data format /
+//! communication protocol. In the case of KMIP for example the request and response hierarchies consist of a common
+//! outer wrapper, a header followed by one or more batch items each with a common payload wrapper and a variable inner
+//! payload.
+//!
+//! When deserializing, the structure to expect in the payload depends on the "Operation" enum field value in the
+//! payload wrapper. Given an enum type as input, Serde cannot know which of the variants it is supposed to use to
+//! populate the users data structure as it knows know about the "Operation" value.
+//!
+//! The solution is to teach it about the "Operation" value like so:
+//!
+//! ```
+//! #[derive(Deserialize)]
+//! struct BatchItem {
+//!     #[serde(rename = "0x42005C")]
+//!     operation: Operation,
+//!     #[serde(rename = "0x42007C")]
+//!     payload: ResponsePayload,
+//! }
+//! 
+//! #[derive(Deserialize)]
+//! enum Operation {
+//!     #[serde(rename = "0x00000001")]
+//!     Create,
+//! }
+//! 
+//! #[derive(Deserialize)]
+//! enum ResponsePayload {
+//!      #[serde(rename = "if 0x42005C==0x00000001")]
+//!      Create(CreateResponsePayload),
+//!      Other(SomeOtherResponsePayload),
+//! }
+//! 
+//! #[derive(Deserialize)]
+//! struct CreateResponsePayload {
+//!     // ... some fields ...
+//! }
+//! ```
+//!
+//! The link between the "Operation" enum and the payload enum variant is established using the
+//! special `#[serde(rename = "if 0x42005C==0x00000001")]` syntax.
 use std::{
     cell::{RefCell, RefMut},
     cmp::Ordering,
