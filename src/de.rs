@@ -122,6 +122,29 @@ impl<'de> Deserializer<'de> for &mut TtlvDeserializer<'de> {
 }
 
 //======================================================================================================================
+// HELPER FUNCTIONS
+//======================================================================================================================
+
+fn read_item_tag(src: &mut Cursor<&[u8]>) -> Result<ItemTag> {
+    let mut raw_item_tag = [0u8; 3];
+    src.read_exact(&mut raw_item_tag)?;
+    let item_tag = ItemTag::from(raw_item_tag);
+    Ok(item_tag)
+}
+
+fn read_raw_item_type(src: &mut Cursor<&[u8]>) -> Result<u8> {
+    let mut raw_item_type = [0u8; 1];
+    src.read_exact(&mut raw_item_type)?;
+    Ok(raw_item_type[0])
+}
+
+fn read_value_length(src: &mut Cursor<&[u8]>) -> Result<u32> {
+    let mut value_length = [0u8; 4];
+    src.read_exact(&mut value_length)?;
+    Ok(u32::from_be_bytes(value_length))
+}
+
+//======================================================================================================================
 // STRUCTURE FIELD ACCESS DESERIALIZATION HELPER
 //======================================================================================================================
 
@@ -149,25 +172,6 @@ impl<'de> TtlvStructureFieldAccess<'de> {
             enum_tag_positions: Rc::new(RefCell::new(HashMap::new())),
         }
     }
-
-    fn read_item_tag(&mut self) -> Result<ItemTag> {
-        let mut raw_item_tag = [0u8; 3];
-        self.src.read_exact(&mut raw_item_tag)?;
-        let item_tag = ItemTag::from(raw_item_tag);
-        Ok(item_tag)
-    }
-
-    fn read_raw_item_type(&mut self) -> Result<u8> {
-        let mut raw_item_type = [0u8; 1];
-        self.src.read_exact(&mut raw_item_type)?;
-        Ok(raw_item_type[0])
-    }
-
-    fn read_value_length(&mut self) -> Result<u32> {
-        let mut value_length = [0u8; 4];
-        self.src.read_exact(&mut value_length)?;
-        Ok(u32::from_be_bytes(value_length))
-    }
 }
 
 impl<'de> MapAccess<'de> for TtlvStructureFieldAccess<'de> {
@@ -184,21 +188,21 @@ impl<'de> MapAccess<'de> for TtlvStructureFieldAccess<'de> {
             // We haven't read the structure header yet. Verify that we indeed that the next bytes in the buffer define
             // a TTLV structure and find out how long the structure is so that we don't attempt to read structure fields
             // beyond the end of the TTLV structure value bytes.
-            let item_tag = self.read_item_tag()?;
+            let item_tag = read_item_tag(&mut self.src)?;
             if let Some(expected_tag) = self.expected_tag {
                 if item_tag != expected_tag {
                     return Err(Error::UnexpectedTtlvTag(expected_tag, item_tag.to_string()));
                 }
             }
 
-            let item_type = self.read_raw_item_type()?;
+            let item_type = read_raw_item_type(&mut self.src)?;
             if item_type != (ItemType::Structure as u8) {
                 return Err(Error::UnexpectedTtlvType(ItemType::Structure, item_type));
             }
 
             // Note: it's unclear from the KMIP v1.0 spec if the value length is an unsigned integer, or a KMIP Integer,
             // or a 2's complement integer... assuming for now that's it a big endian u32.
-            let value_length = self.read_value_length()?;
+            let value_length = read_value_length(&mut self.src)?;
 
             // Remember the end position of this structure so that when reading subsequent keys we can check that we
             // haven't reached the end of the structure.
@@ -238,7 +242,7 @@ impl<'de> MapAccess<'de> for TtlvStructureFieldAccess<'de> {
             return Err(Error::DeserializeError);
         }
 
-        self.item_type = Some(self.read_raw_item_type()?);
+        self.item_type = Some(read_raw_item_type(&mut self.src)?);
 
         seed.deserialize(self)
     }
@@ -285,19 +289,6 @@ impl<'de> TtlvEnumVariantAccess<'de> {
             src,
             enum_tag_positions,
         }
-    }
-
-    fn read_item_tag(&mut self) -> Result<ItemTag> {
-        let mut raw_item_tag = [0u8; 3];
-        self.src.read_exact(&mut raw_item_tag)?;
-        let item_tag = ItemTag::from(raw_item_tag);
-        Ok(item_tag)
-    }
-
-    fn read_raw_item_type(&mut self) -> Result<u8> {
-        let mut raw_item_type = [0u8; 1];
-        self.src.read_exact(&mut raw_item_type)?;
-        Ok(raw_item_type[0])
     }
 }
 
@@ -363,8 +354,8 @@ impl<'de> Deserializer<'de> for &mut TtlvEnumVariantAccess<'de> {
         V: Visitor<'de>,
     {
         self.src.set_position(self.src.position() - 4);
-        let item_tag = self.read_item_tag()?;
-        let item_type = self.read_raw_item_type()?;
+        let item_tag = read_item_tag(&mut self.src)?;
+        let item_type = read_raw_item_type(&mut self.src)?;
         if item_type != (ItemType::Enumeration as u8) {
             return Err(Error::DeserializeError);
         }
@@ -482,7 +473,7 @@ impl<'de> Deserializer<'de> for &mut TtlvStructureFieldAccess<'de> {
         V: Visitor<'de>,
     {
         // Expect the next bytes in the buffer to be the start of a TTLV.
-        let item_tag = self.read_item_tag()?;
+        let item_tag = read_item_tag(&mut self.src)?;
 
         let expected_tag_str = self.fields.get(self.read_field_count).ok_or(Error::DeserializeError)?;
         let expected_tag = ItemTag::from_str(expected_tag_str)?;
@@ -510,7 +501,7 @@ impl<'de> Deserializer<'de> for &mut TtlvStructureFieldAccess<'de> {
         // no longer reflects the correct read position. We know however that we finished processing the struct and so
         // the next read position must be after the struct. Find out where the end of the struct is and skip it.
         self.src.set_position(self.struct_start_pos.unwrap() + 4);
-        let len_to_skip = self.read_value_length()? as u64;
+        let len_to_skip = read_value_length(&mut self.src)? as u64;
         self.src.set_position(self.src.position() + len_to_skip);
         Ok(r)
     }
