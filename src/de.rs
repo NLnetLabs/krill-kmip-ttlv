@@ -2,7 +2,7 @@
 //!
 //! # Basic usage
 //!
-//! ```ignore
+//! ```text
 //! #[derive(Deserialize)]
 //! #[serde(rename = "0xAABBCC")]
 //! struct User {
@@ -20,7 +20,7 @@
 //! In TTLV format both the outer structure and the inner field are represented as TTLV "items" which have the byte form
 //! when represented using hexadecimal as follows:
 //!
-//! ```ignore
+//! ```text
 //!      TA TA TA TY LE LE LE LE VA VA VA VA VA VA VA VA VA VA VA VA
 //! e.g. AA BB CC 01 00 00 00 12 DD EE FF 02 00 00 00 04 00 00 00 01
 //!
@@ -39,7 +39,7 @@
 //!
 //! Behind the scenes this will do something like this:
 //!
-//! ```ignore
+//! ```text
 //!    --> struct User::deserialize( TtlvDeserializer::from_slice(bytes) )
 //!         --> TtlvDeserializer::deserialize_struct()
 //!             --> visitor.visit_map(TtlvStructureFieldAccess::new(cursor.clone()))
@@ -82,7 +82,7 @@
 //!
 //! The solution is to teach it about the "Operation" value like so:
 //!
-//! ```ignore
+//! ```text
 //! #[derive(Deserialize)]
 //! struct BatchItem {
 //!     #[serde(rename = "0x42005C")]
@@ -185,7 +185,7 @@ impl<'de> Deserializer<'de> for &mut TtlvDeserializer<'de> {
 
     /// If the caller defines something like this:
     ///
-    /// ```ignore
+    /// ```text
     /// #[derive(Deserialize)]
     /// #[serde(rename = "0xAABBCC")]
     /// struct MyType {
