@@ -567,7 +567,8 @@ impl<'de> Deserializer<'de> for &mut TtlvStructureFieldAccess<'de> {
                             if val == enum_val {
                                 // Use this variant
 
-                                // if we are going to treat this as a structure we need to walk back to the start of the tag
+                                // if we are going to treat this as a structure we need to walk back to the start of the
+                                // tag
                                 let mut inner_src = self.src.clone();
                                 inner_src.set_position(self.struct_start_pos.unwrap());
                                 let r = visitor.visit_enum(TtlvEnumOneVariantAccess::new(inner_src, v))?;
