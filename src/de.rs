@@ -451,12 +451,6 @@ impl<'de> Deserializer<'de> for &mut TtlvEnumOneVariantAccess<'de> {
     where
         V: Visitor<'de>,
     {
-        // self.src.set_position(self.src.position()-4);
-        // let item_tag = self.read_item_tag()?;
-        // let v = TtlvEnumeration::read(&mut self.src)?;
-        // let n = format!("0x{}", hex::encode_upper(v.to_be_bytes()));
-        // self.enum_tag_positions.insert(item_tag, n);
-        // visitor.visit_string(n)
         visitor.visit_str(self.one_variant)
     }
 
