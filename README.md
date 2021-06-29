@@ -11,7 +11,7 @@ TTLV:
 
 ### Welcome
 
-This crate offers a **partial implementation** of KMIP v1.0 **TTLV** (de)serialization functionality for use primiarly by the [Krill](https://nlnetlabs.nl/projects/rpki/krill/) project. The interface offered is based on the popular Rust [Serde](https://serde.rs/) (de)serialization framework for decorating arbitrary high level Rust "business object" structs with attributes that guide the (de)serialization process.
+This crate offers a **partial implementation** of KMIP v1.0 **TTLV** (de)serialization functionality for use primarily by the [Krill](https://nlnetlabs.nl/projects/rpki/krill/) project. The interface offered is based on the popular Rust [Serde](https://serde.rs/) (de)serialization framework for decorating arbitrary high level Rust "business object" structs with attributes that guide the (de)serialization process.
 
 ### Scope
 
