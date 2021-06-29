@@ -8,7 +8,7 @@
 [KMIP](http://docs.oasis-open.org/kmip/spec/v1.0/kmip-spec-1.0.html):
 > The OASIS Key Management Interoperability Protocol specifications which define message formats for the manipulation of cryptographic material on a key management server.
 
-TTLV:
+[TTLV](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc262581260):
 > A building block of the KMIP specifications which defines how to encode and decode structured data to/from a binary form as a sequence of Tag-Type-Length-Value (aka TTLV) items.
 
 ### Welcome
