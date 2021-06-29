@@ -107,7 +107,7 @@ impl<'de> Deserializer<'de> for &mut TtlvDeserializer<'de> {
         // approach.
 
         visitor.visit_map(TtlvStructureFieldAccess::new(
-            Cursor::new(self.src.get_ref()),
+            self.src.clone(),
             fields,
             ItemTag::from_str(name).ok(),
         ))
