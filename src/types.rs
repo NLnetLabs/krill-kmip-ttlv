@@ -7,7 +7,7 @@ use std::{
 
 use crate::error::{Error, Result};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ItemTag(u32);
 
 impl Deref for ItemTag {
