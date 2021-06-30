@@ -269,6 +269,7 @@ struct TtlvStructureFieldAccess<'de> {
     struct_start_pos: Option<u64>,
     item_type: Option<u8>,
     enum_tag_positions: Rc<RefCell<HashMap<ItemTag, String>>>,
+    unexpected_tag_found: bool,
 }
 
 impl<'de> TtlvStructureFieldAccess<'de> {
@@ -282,6 +283,7 @@ impl<'de> TtlvStructureFieldAccess<'de> {
             struct_start_pos: None,
             item_type: None,
             enum_tag_positions: Rc::new(RefCell::new(HashMap::new())),
+            unexpected_tag_found: false,
         }
     }
 }
@@ -333,6 +335,7 @@ impl<'de> MapAccess<'de> for TtlvStructureFieldAccess<'de> {
 
         self.struct_start_pos = Some(self.src.position());
         self.item_type = None;
+        self.unexpected_tag_found = false;
 
         seed.deserialize(self).map(Some)
     }
@@ -575,7 +578,7 @@ impl<'de> Deserializer<'de> for &mut TtlvStructureFieldAccess<'de> {
     type Error = Error;
 
     serde::forward_to_deserialize_any! {
-        bool u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 char str string bytes byte_buf map option unit
+        bool u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 char str string bytes byte_buf map unit
         ignored_any unit_struct tuple_struct tuple
     }
 
@@ -590,9 +593,10 @@ impl<'de> Deserializer<'de> for &mut TtlvStructureFieldAccess<'de> {
         let expected_tag_str = self.fields.get(self.read_field_count).ok_or(Error::DeserializeError)?;
         let expected_tag = ItemTag::from_str(expected_tag_str)?;
         if item_tag != expected_tag {
-            return Err(Error::UnexpectedTtlvTag(expected_tag, item_tag.to_string()));
+            // This is not an error if the field in the client struct is optional as we may then not see it in the TTLV
+            // stream we are deserializing.
+            self.unexpected_tag_found = true;
         }
-
         visitor.visit_str(expected_tag_str)
     }
 
@@ -687,6 +691,26 @@ impl<'de> Deserializer<'de> for &mut TtlvStructureFieldAccess<'de> {
             }
             Some(item_type) => Err(Error::UnexpectedTtlvType(ItemType::Enumeration, item_type)),
             None => Err(Error::DeserializeError),
+        }
+    }
+
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        // There is nothing in the TTLV data that says whether a value is present or not, it has no notion of a null
+        // value in the data. So if the caller uses Option in the struct we are deserializing into this can only be
+        // handled by detecting that the item tag they were expecting is not the one we found, i.e. the field they were
+        // looking for is "null". When we checked the item tag we set a flag to say whether or not the tag we found was
+        // the one we expected. Check that flag here, and if it wasn't the one that was expected "put it back" to be
+        // consumed again for the next client struct field instead of this one.
+        if self.unexpected_tag_found {
+            self.src.set_position(self.struct_start_pos.unwrap()); // TODO: I'm not sure that struct_start_pos is the
+                                                                   // right name for the value stored in the field,
+                                                                   // check the logic.
+            visitor.visit_none()
+        } else {
+            visitor.visit_some(self)
         }
     }
 
