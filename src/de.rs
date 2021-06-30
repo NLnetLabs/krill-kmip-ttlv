@@ -327,7 +327,7 @@ impl<'de> MapAccess<'de> for TtlvStructureFieldAccess<'de> {
         }
 
         // Have we reached the end of the structure value?
-        if self.src.position() > self.end_pos.unwrap() {
+        if self.src.position() >= self.end_pos.unwrap() {
             return Ok(None);
         }
 
