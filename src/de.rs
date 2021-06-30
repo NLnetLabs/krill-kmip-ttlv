@@ -9,7 +9,7 @@
 //!     #[serde(rename = "0xDDEEFF")]
 //!     some_field: i32
 //! }
-//! 
+//!
 //! let res: User = from_slice(bytes)?;
 //! ```
 //!
@@ -44,29 +44,29 @@
 //!         --> TtlvDeserializer::deserialize_struct()
 //!             --> visitor.visit_map(TtlvStructureFieldAccess::new(cursor.clone()))
 //! ```
-//! 
+//!
 //! The map visitor will now look for keys matching the field names (or serde renames) in the User structure, and will
 //! invoke deserializer functions corresponding to the Rust type of the corresponding User structure field values, or
 //! `deserialize_any` if the `Deserializer` doesn't support the particular type.
-//! 
+//!
 //! - User struct keys are processed by `fn deserialize_identifier()`. Serde expects one of the `visit_str` family of
 //!   functions to be invoked with the same text as either the field name in the User struct or the
 //!   `#[serde(rename = "xxx")]` "xxx" value defined by the user on the User struct field.
-//! 
+//!
 //! - Primitive fields are handled by `fn deserialize_any()`, including the non-primitive case of a complex enum
 //!   variant.
-//! 
+//!
 //! - Simple structures that wrap just a single value are handled by `fn deserialize_newtype_struct()` which in turn
 //!   will invoke any of the other handlers.
-//! 
+//!
 //! - Enums over single values are handled by `fn deserialize_enum()` which in turn uses either `TtlvEnumVariantAccess`
 //!   or `TtlvEnumOneVariantAccess` to invoke any of the other handlers, both structs are only partially implemented.
 //!   `TtlvEnumVariantAccess` keeps a record in the parent `TtlvStructureFieldAccess` of which enum tags have which
 //!   values. These are then looked up when deciding which enum variant to populate in cases where
 //!   `#[serde(rename = "if A==B")]` are defined.
-//! 
+//!
 //! - Structures are handled by `fn deserialize_struct()` which recurses into `self` as `MapAccess`.
-//! 
+//!
 //! - Sequences (i.e. `Vec<_>`) are handled by `fn deserialize_seq()` with the assistance of `self` as `SeqAccess`.
 //!
 //! # Real world application
@@ -90,20 +90,20 @@
 //!     #[serde(rename = "0x42007C")]
 //!     payload: ResponsePayload,
 //! }
-//! 
+//!
 //! #[derive(Deserialize)]
 //! enum Operation {
 //!     #[serde(rename = "0x00000001")]
 //!     Create,
 //! }
-//! 
+//!
 //! #[derive(Deserialize)]
 //! enum ResponsePayload {
 //!      #[serde(rename = "if 0x42005C==0x00000001")]
 //!      Create(CreateResponsePayload),
 //!      Other(SomeOtherResponsePayload),
 //! }
-//! 
+//!
 //! #[derive(Deserialize)]
 //! struct CreateResponsePayload {
 //!     // ... some fields ...
