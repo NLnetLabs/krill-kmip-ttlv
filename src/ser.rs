@@ -106,12 +106,8 @@ impl Serializer {
     /// To be called at the end of serializing the stream of TTLV bytes. Makes sure that we didn't forget to rewrite the
     /// last dummy TTLV length value and verifies afterwards that there are no bookmarks left.
     fn finalize(&mut self) -> Result<()> {
-        self.rewrite_len()?; // why is this needed?
-        if !self.bookmarks.is_empty() {
-            return Err(Error::Other(format!(
-                "Internal error: {} len byte rewrites are still pending!",
-                self.bookmarks.len()
-            )));
+        while !self.bookmarks.is_empty() {
+            self.rewrite_len()?;
         }
         Ok(())
     }
