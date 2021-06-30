@@ -220,6 +220,14 @@ impl serde::ser::Serializer for &mut Serializer {
         Ok(self)
     }
 
+    /// Serialize a `Some(value)` as if it were plain `value`.
+    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<()>
+    where
+        T: Serialize,
+    {
+        value.serialize(self)
+    }
+
     // ==============================================================
     // RUST TYPES FOR WHICH SERIALIZATION TO TTLV IS _NOT_ SUPPORTED!
     // ==============================================================
@@ -258,15 +266,12 @@ impl serde::ser::Serializer for &mut Serializer {
         Err(Self::Error::UnsupportedType("&[u8]"))
     }
 
+    /// Serializing `None` values, e.g. Option::<TypeName>::None, is not supported as we have already serialized the
+    /// item tag to the output by the time we process the `Option` value. The correct way to omit None values is to not
+    /// attempt to serialize them at all, e.g. using the `#[serde(skip_serializing_if = "Option::is_none")]` Serde
+    /// derive field attribute.
     fn serialize_none(self) -> Result<()> {
         Err(Self::Error::UnsupportedType("None"))
-    }
-
-    fn serialize_some<T: ?Sized>(self, _v: &T) -> Result<()>
-    where
-        T: Serialize,
-    {
-        Err(Self::Error::UnsupportedType("Some"))
     }
 
     fn serialize_unit(self) -> Result<()> {
@@ -362,82 +367,82 @@ mod test {
 
     use crate::ser::to_vec;
 
-    // Define the types used by the test below. Note that these are structured so as to be easy to compose with minimal
-    // boilerplate overhead. For example tuple structs are heavily used rather than structs with named fields. If this
-    // were for deserialization instead of serialization these types should instead be verbose with named fields to make
-    // it easy to interact with the response objects.
-    #[derive(Serialize)]
-    #[serde(rename = "0x420078")]
-    struct RequestMessage(RequestHeader, Vec<BatchItem>);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x420077")]
-    struct RequestHeader(ProtocolVersion, BatchCount);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x42006B")]
-    struct ProtocolVersionMinor(i32);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x42006A")]
-    struct ProtocolVersionMajor(i32);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x420069")]
-    struct ProtocolVersion(ProtocolVersionMajor, ProtocolVersionMinor);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x42000D")]
-    struct BatchCount(i32);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x42000F")]
-    struct BatchItem(Operation, RequestPayload);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x42005C")]
-    enum Operation {
-        #[serde(rename = "0x00000001")]
-        Create,
-    }
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x420079")]
-    struct RequestPayload(ObjectType, TemplateAttribute);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x420057")]
-    enum ObjectType {
-        #[serde(rename = "0x00000002")]
-        SymmetricKey,
-    }
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x420091")]
-    struct TemplateAttribute(Vec<Attribute>);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x420008")]
-    struct Attribute(AttributeName, AttributeValue);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x42000A")]
-    struct AttributeName(&'static str);
-
-    #[derive(Serialize)]
-    #[serde(rename = "0x42000B")]
-    enum AttributeValue {
-        Integer(i32),
-        Enumeration(u32),
-    }
-
-    #[derive(Serialize)]
-    enum CryptographicAlgorithm {
-        AES = 0x00000003,
-    }
-
     #[test]
     fn test_kmip_10_create_destroy_use_case_create_request_serialization() {
+        // Define the types used by the test below. Note that these are structured so as to be easy to compose with minimal
+        // boilerplate overhead. For example tuple structs are heavily used rather than structs with named fields. If this
+        // were for deserialization instead of serialization these types should instead be verbose with named fields to make
+        // it easy to interact with the response objects.
+        #[derive(Serialize)]
+        #[serde(rename = "0x420078")]
+        struct RequestMessage(RequestHeader, Vec<BatchItem>);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x420077")]
+        struct RequestHeader(ProtocolVersion, BatchCount);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x42006B")]
+        struct ProtocolVersionMinor(i32);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x42006A")]
+        struct ProtocolVersionMajor(i32);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x420069")]
+        struct ProtocolVersion(ProtocolVersionMajor, ProtocolVersionMinor);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x42000D")]
+        struct BatchCount(i32);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x42000F")]
+        struct BatchItem(Operation, RequestPayload);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x42005C")]
+        enum Operation {
+            #[serde(rename = "0x00000001")]
+            Create,
+        }
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x420079")]
+        struct RequestPayload(ObjectType, TemplateAttribute);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x420057")]
+        enum ObjectType {
+            #[serde(rename = "0x00000002")]
+            SymmetricKey,
+        }
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x420091")]
+        struct TemplateAttribute(Vec<Attribute>);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x420008")]
+        struct Attribute(AttributeName, AttributeValue);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x42000A")]
+        struct AttributeName(&'static str);
+
+        #[derive(Serialize)]
+        #[serde(rename = "0x42000B")]
+        enum AttributeValue {
+            Integer(i32),
+            Enumeration(u32),
+        }
+
+        #[derive(Serialize)]
+        enum CryptographicAlgorithm {
+            AES = 0x00000003,
+        }
+
         // Attempt to generate correct binary TTLV for KMIP specification v1.0 use case 3.1.1 Create / Destroy as the\
         // use case definition includes the input structure and the corresponding expected binary output.
         // See: http://docs.oasis-open.org/kmip/usecases/v1.0/cs01/kmip-usecases-1.0-cs-01.pdf
@@ -472,14 +477,20 @@ mod test {
     }
 
     #[test]
-    fn simple_output() {
-        let input = RequestMessage(
-            RequestHeader(
-                ProtocolVersion(ProtocolVersionMajor(1), ProtocolVersionMinor(0)),
-                BatchCount(0),
-            ),
-            vec![],
-        );
-        eprintln!("{}", hex::encode_upper(to_vec(&input).unwrap()));
+    fn test_some_option_ttlv_item() {
+        #[derive(Serialize)]
+        #[serde(rename = "0xAABBCC")]
+        struct ItemWithOptionalField(Option<i32>);
+        let with_some = ItemWithOptionalField(Some(3));
+
+        #[derive(Serialize)]
+        #[serde(rename = "0xAABBCC")]
+        struct ItemWithoutOptionalField(i32);
+        let without_some = ItemWithoutOptionalField(3);
+
+        let encoded_with_some = hex::encode_upper(to_vec(&with_some).unwrap());
+        let encoded_without_some = hex::encode_upper(to_vec(&without_some).unwrap());
+
+        assert_eq!(encoded_with_some, encoded_without_some);
     }
 }
