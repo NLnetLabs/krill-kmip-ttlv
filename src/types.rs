@@ -237,7 +237,12 @@ macro_rules! define_serializable_ttlv_type {
 
             fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
                 if value_len != Self::TTLV_FIXED_VALUE_LENGTH {
-                    Err(Error::DeserializeError)
+                    Err(Error::InvalidLength(format!(
+                        "Item length is {} but for type {} it should be {}",
+                        value_len,
+                        stringify!($NEW_TYPE_NAME),
+                        Self::TTLV_FIXED_VALUE_LENGTH
+                    )))
                 } else {
                     let mut dst = [0u8; Self::TTLV_FIXED_VALUE_LENGTH as usize];
                     src.read_exact(&mut dst)?;
@@ -306,14 +311,21 @@ impl SerializableTtlvType for TtlvBoolean {
 
     fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
         if value_len != Self::TTLV_FIXED_VALUE_LENGTH {
-            Err(Error::DeserializeError)
+            Err(Error::InvalidLength(format!(
+                "Item length is {} but for type TtlvBoolean it should be {}",
+                value_len,
+                Self::TTLV_FIXED_VALUE_LENGTH
+            )))
         } else {
             let mut dst = [0u8; Self::TTLV_FIXED_VALUE_LENGTH as usize];
             src.read_exact(&mut dst)?;
             match u64::from_be_bytes(dst) {
                 0 => Ok(TtlvBoolean(false)),
                 1 => Ok(TtlvBoolean(true)),
-                _ => Err(Error::DeserializeError),
+                n => Err(Error::Other(format!(
+                    "TtlvBoolean value must be 0 or 1 but found {}",
+                    n
+                ))),
             }
         }
     }

@@ -10,11 +10,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[non_exhaustive]
 pub enum Error {
     // TODO: use named struct fields
-    DeserializeError,
+    DeserializeError(String, usize, String),
     IoError(std::io::Error),
     InsufficientBytes,
     InvalidTag(String),
     InvalidType(String),
+    InvalidLength(String),
     InvalidUtf8(String),
     ParseError(ItemTag),
     UnexpectedTtlvTag(ItemTag, String),
@@ -39,11 +40,15 @@ impl From<ParseIntError> for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::DeserializeError => f.write_str("Deserialization error"),
+            Error::DeserializeError(ctx, pos, msg) => f.write_fmt(format_args!(
+                "Deserialization error: {} at position {} with context {:?}",
+                ctx, pos, msg
+            )),
             Error::IoError(err) => f.write_fmt(format_args!("IO error: {:?}", err)),
             Error::InsufficientBytes => f.write_str("Insufficient bytes"),
             Error::InvalidTag(err) => f.write_fmt(format_args!("Invalid Item Tag: {}", err)),
             Error::InvalidType(err) => f.write_fmt(format_args!("Invalid Item Type: {}", err)),
+            Error::InvalidLength(err) => f.write_fmt(format_args!("Invlid Item Length: {}", err)),
             Error::InvalidUtf8(err) => f.write_fmt(format_args!("Invalid UTF-8: {}", err)),
             Error::ParseError(item_tag) => f.write_fmt(format_args!("Failed to parse TTLV tag '{:#0X?}'", item_tag)),
             Error::UnexpectedTtlvTag(item_tag, found) => f.write_fmt(format_args!(

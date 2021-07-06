@@ -1,117 +1,3 @@
-//! Deserialize TTLV data to a Rust data structure.
-//!
-//! # Basic usage
-//!
-//! ```text
-//! #[derive(Deserialize)]
-//! #[serde(rename = "0xAABBCC")]
-//! struct User {
-//!     #[serde(rename = "0xDDEEFF")]
-//!     some_field: i32
-//! }
-//!
-//! let res: User = from_slice(bytes)?;
-//! ```
-//!
-//! The bytes in the slice are encoded according to the KMIP 1.0 TTLV encoding rules. In this example the data
-//! represents a single TTLV structure whose "tag" code is 0xAABBCC, and the structure contains a single integer field
-//! whose "tag" code is 0xDDEEFF.
-//!
-//! In TTLV format both the outer structure and the inner field are represented as TTLV "items" which have the byte form
-//! when represented using hexadecimal as follows:
-//!
-//! ```text
-//!      TA TA TA TY LE LE LE LE VA VA VA VA VA VA VA VA VA VA VA VA
-//! e.g. AA BB CC 01 00 00 00 12 DD EE FF 02 00 00 00 04 00 00 00 01
-//!
-//! i.e.                         TA TA TA TY LE LE LE LE VA VA VA VA
-//!                              DD EE FF 02 00 00 00 04 00 00 00 01
-//! ```
-//!
-//! Where:
-//!   - TA denotes 3 "tag" code bytes, e.g. the outer struct tag code is 0xAABBCC
-//!   - TY denotes 1 "type" code byte, e.g. the outer struct has tyoe 0x01 denoting a TTLV structure
-//!   - LE denotes 4 "length" bytes, e.g. the outer struct has 12 value bytes
-//!   - VA denotes a variable number of "value" bytes, in this case they define another TTLV item representing a type 0x2
-//!     TTLV 32-bit (4 byte) integer field with value 0x00000001.
-//!
-//! # How it works
-//!
-//! Behind the scenes this will do something like this:
-//!
-//! ```text
-//!    --> struct User::deserialize( TtlvDeserializer::from_slice(bytes) )
-//!         --> TtlvDeserializer::deserialize_struct()
-//!             --> visitor.visit_map(TtlvStructureFieldAccess::new(cursor.clone()))
-//! ```
-//!
-//! The map visitor will now look for keys matching the field names (or serde renames) in the User structure, and will
-//! invoke deserializer functions corresponding to the Rust type of the corresponding User structure field values, or
-//! `deserialize_any` if the `Deserializer` doesn't support the particular type.
-//!
-//! - User struct keys are processed by `fn deserialize_identifier()`. Serde expects one of the `visit_str` family of
-//!   functions to be invoked with the same text as either the field name in the User struct or the
-//!   `#[serde(rename = "xxx")]` "xxx" value defined by the user on the User struct field.
-//!
-//! - Primitive fields are handled by `fn deserialize_any()`, including the non-primitive case of a complex enum
-//!   variant.
-//!
-//! - Simple structures that wrap just a single value are handled by `fn deserialize_newtype_struct()` which in turn
-//!   will invoke any of the other handlers.
-//!
-//! - Enums over single values are handled by `fn deserialize_enum()` which in turn uses either `TtlvEnumVariantAccess`
-//!   or `TtlvEnumOneVariantAccess` to invoke any of the other handlers, both structs are only partially implemented.
-//!   `TtlvEnumVariantAccess` keeps a record in the parent `TtlvStructureFieldAccess` of which enum tags have which
-//!   values. These are then looked up when deciding which enum variant to populate in cases where
-//!   `#[serde(rename = "if A==B")]` are defined.
-//!
-//! - Structures are handled by `fn deserialize_struct()` which recurses into `self` as `MapAccess`.
-//!
-//! - Sequences (i.e. `Vec<_>`) are handled by `fn deserialize_seq()` with the assistance of `self` as `SeqAccess`.
-//!
-//! # Real world application
-//!
-//! Its unlikely that you'll need to define a single hierarchy of TTLV data types to represent your data format /
-//! communication protocol. In the case of KMIP for example the request and response hierarchies consist of a common
-//! outer wrapper, a header followed by one or more batch items each with a common payload wrapper and a variable inner
-//! payload.
-//!
-//! When deserializing, the structure to expect in the payload depends on the "Operation" enum field value in the
-//! payload wrapper. Given an enum type as input, Serde cannot know which of the variants it is supposed to use to
-//! populate the users data structure as it knows nothing about the "Operation" value.
-//!
-//! The solution is to teach it about the "Operation" value like so:
-//!
-//! ```text
-//! #[derive(Deserialize)]
-//! struct BatchItem {
-//!     #[serde(rename = "0x42005C")]
-//!     operation: Operation,
-//!     #[serde(rename = "0x42007C")]
-//!     payload: ResponsePayload,
-//! }
-//!
-//! #[derive(Deserialize)]
-//! enum Operation {
-//!     #[serde(rename = "0x00000001")]
-//!     Create,
-//! }
-//!
-//! #[derive(Deserialize)]
-//! enum ResponsePayload {
-//!      #[serde(rename = "if 0x42005C==0x00000001")]
-//!      Create(CreateResponsePayload),
-//!      Other(SomeOtherResponsePayload),
-//! }
-//!
-//! #[derive(Deserialize)]
-//! struct CreateResponsePayload {
-//!     // ... some fields ...
-//! }
-//! ```
-//!
-//! The link between the "Operation" enum and the payload enum variant is established using the
-//! special `#[serde(rename = "if 0x42005C==0x00000001")]` syntax.
 use std::{
     cell::{RefCell, RefMut},
     cmp::Ordering,
@@ -131,7 +17,9 @@ use crate::{
     error::Error,
     error::Result,
     types::{ItemTag, ItemType},
-    types::{SerializableTtlvType, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvTextString},
+    types::{
+        SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvTextString,
+    },
 };
 
 // --- Public interface ------------------------------------------------------------------------------------------------
@@ -140,7 +28,8 @@ pub fn from_slice<'de, T>(bytes: &'de [u8]) -> Result<T>
 where
     T: Deserialize<'de>,
 {
-    let mut deserializer = TtlvDeserializer::from_slice(bytes);
+    let cursor = &mut Cursor::new(bytes);
+    let mut deserializer = TtlvDeserializer::from_slice(cursor);
     T::deserialize(&mut deserializer)
 }
 
@@ -152,604 +41,933 @@ impl serde::de::Error for Error {
     }
 }
 
-//======================================================================================================================
-// ROOT DESERIALIZER
-//======================================================================================================================
+trait ContextualErrorSupport {
+    const WINDOW_SIZE: usize = 20;
 
-struct TtlvDeserializer<'de> {
-    src: Cursor<&'de [u8]>,
+    fn pos(&self) -> usize;
+    fn buf(&self) -> &[u8];
+    fn ctx(&self) -> String {
+        let pos = self.pos();
+        let buf_len = self.buf().len();
+        let start = if pos > Self::WINDOW_SIZE {
+            pos - Self::WINDOW_SIZE
+        } else {
+            0
+        };
+        let mut end = start + (2 * Self::WINDOW_SIZE);
+        if end >= buf_len {
+            end = buf_len - 1
+        }
+
+        let mut ctx = String::new();
+        if start < pos {
+            ctx.push_str(&format!("..{}", &hex::encode_upper(self.buf()[start..pos].to_vec())));
+        }
+        if pos < end {
+            ctx.push_str(&format!(
+                " >>{}<< ",
+                &hex::encode_upper(self.buf()[pos..pos + 1].to_vec())
+            ));
+        }
+        if (pos + 1) < end {
+            ctx.push_str(&format!("{}..", &hex::encode_upper(self.buf()[pos + 1..end].to_vec())));
+        }
+        ctx
+    }
+    fn unknown_error(&self, fn_name: &str) -> Error {
+        Error::DeserializeError(self.ctx(), self.pos(), format!("{}: internal error", fn_name))
+    }
+    fn error(&self, fn_name: &str, msg: &str) -> Error {
+        Error::DeserializeError(self.ctx(), self.pos(), format!("{}: internal error: {}", fn_name, msg))
+    }
 }
 
-impl<'de> TtlvDeserializer<'de> {
-    pub fn from_slice(bytes: &'de [u8]) -> Self {
+struct TtlvDeserializer<'de: 'c, 'c> {
+    src: &'c mut Cursor<&'de [u8]>,
+
+    // for container/group types (map, seq)
+    #[allow(dead_code)]
+    group_start: u64,
+    group_tag: Option<ItemTag>,
+    group_type: Option<ItemType>,
+    group_end: Option<u64>,
+    group_fields: &'static [&'static str], // optional field handling: expected fields to compare to actual fields
+    group_item_count: usize,               // optional field handling: index into the group_fields array
+
+    // for the current field being parsed
+    item_start: u64, // optional field handling: point to return to if field is missing
+    item_tag: Option<ItemTag>,
+    item_type: Option<ItemType>,
+    item_unexpected: bool, // optional field handling: is this tag wrong for the expected field (and thus is missing?)
+    item_identifier: Option<String>,
+
+    // lookup maps
+    unit_enum_store: Rc<RefCell<HashMap<ItemTag, String>>>,
+}
+
+impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
+    pub fn from_slice(cursor: &'c mut Cursor<&'de [u8]>) -> Self {
         Self {
-            src: Cursor::new(bytes),
+            src: cursor,
+            group_start: 0,
+            group_tag: None,
+            group_type: None,
+            group_end: None,
+            group_fields: &[],
+            group_item_count: 0,
+            item_start: 0,
+            item_tag: None,
+            item_type: None,
+            item_unexpected: false,
+            item_identifier: None,
+            unit_enum_store: Rc::new(RefCell::new(HashMap::new())),
         }
     }
-}
 
-/// Here we implement the Serde Deserializer trait functions that we need to support. The more of the interface that we
-/// implement and the richer the implementation then the more flexibly the client can use serde to transpose the data
-/// into their own desired layout.
-impl<'de> Deserializer<'de> for &mut TtlvDeserializer<'de> {
-    type Error = Error;
+    pub fn from_cursor(
+        src: &'c mut Cursor<&'de [u8]>,
+        group_tag: ItemTag,
+        group_type: ItemType,
+        group_end: u64,
+        group_fields: &'static [&'static str],
+        unit_enum_store: Rc<RefCell<HashMap<ItemTag, String>>>,
+    ) -> Self {
+        let group_start = src.position();
+        let group_tag = Some(group_tag);
+        let group_type = Some(group_type);
+        let group_end = Some(group_end);
 
-    // The client is expected to invoke the serializer on a Rust struct. The entrypoint for deserialization is thus one
-    // of the serde struct deserializer functions. To make the most readable and obvious client interface I would
-    // expect the client to use named struct fields, i.e. not to use a tuple or unit struct. As such we implement only
-    // deserialize_struct() for now. Instruct serde about the types that we do not support deserialization to:
-    serde::forward_to_deserialize_any! {
-        bool u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 char str map string seq bytes byte_buf option unit newtype_struct
-        ignored_any unit_struct tuple_struct tuple enum identifier
+        Self {
+            src,
+            group_start,
+            group_tag,
+            group_type,
+            group_end,
+            group_fields,
+            group_item_count: 0,
+            item_start: group_start,
+            item_tag: None,
+            item_type: None,
+            item_unexpected: false,
+            item_identifier: None,
+            unit_enum_store,
+        }
     }
 
-    /// If the caller defines something like this:
+    fn read_tag(&mut self) -> Result<ItemTag> {
+        let mut raw_item_tag = [0u8; 3];
+        self.src.read_exact(&mut raw_item_tag)?;
+        let item_tag = ItemTag::from(raw_item_tag);
+        Ok(item_tag)
+    }
+
+    fn read_type(&mut self) -> Result<ItemType> {
+        let mut raw_item_type = [0u8; 1];
+        self.src.read_exact(&mut raw_item_type)?;
+        let item_type = ItemType::try_from(raw_item_type[0])?;
+        Ok(item_type)
+    }
+
+    fn read_length(&mut self) -> Result<u32> {
+        let mut value_length = [0u8; 4];
+        self.src.read_exact(&mut value_length)?;
+        Ok(u32::from_be_bytes(value_length))
+    }
+
+    /// Returns Ok(true) if there is data available, Ok(false) if the end of the group has been reached or Err()
+    /// otherwise.
+    fn read_item_key(&mut self, caller_fn_name: &'static str) -> Result<bool> {
+        match self.pos().cmp(&(self.group_end.unwrap() as usize)) {
+            Ordering::Less => {}
+            Ordering::Equal => return Ok(false),
+            Ordering::Greater => {
+                return Err(self.error(
+                    caller_fn_name,
+                    &format!("buffer overrun: {} > {}", self.pos(), self.group_end.unwrap()),
+                ))
+            }
+        }
+
+        self.item_start = self.pos() as u64;
+        self.item_tag = Some(self.read_tag()?);
+        self.item_type = Some(self.read_type()?);
+
+        self.group_item_count += 1;
+
+        self.item_unexpected = if self.group_fields.is_empty() {
+            false
+        } else {
+            let field_index = self.group_item_count - 1;
+            let expected_tag_str = self.group_fields.get(field_index).ok_or_else(|| {
+                self.error(
+                    caller_fn_name,
+                    &format!(
+                        "expected field index is out of bounds {} >= {}",
+                        field_index,
+                        self.group_fields.len()
+                    ),
+                )
+            })?;
+            let actual_tag_str = &self.item_tag.unwrap().to_string();
+
+            let item_unexpected = actual_tag_str != expected_tag_str;
+            self.item_identifier = Some(expected_tag_str.to_string());
+
+            item_unexpected
+        };
+
+        Ok(true)
+    }
+
+    fn prepare_to_descend(
+        &mut self,
+        caller_fn_name: &'static str,
+        name: &'static str,
+    ) -> Result<(u64, ItemTag, ItemType, u64)> {
+        let (group_start, group_tag, group_type) = if self.pos() == 0 {
+            // When invoked by Serde via from_slice() there is no prior call to next_key_seed() that reads the tag and
+            // type as we are not visiting a map at that point. Thus we need to read the opening tag and type here.
+            let group_start = self.src.position();
+            let group_tag = self.read_tag()?;
+            let group_type = self.read_type()?;
+            (group_start, group_tag, group_type)
+        } else {
+            // When invoked while visiting a map the opening tag and type of the struct header will have already been
+            // read by next_key_seed() so we don't need to read them here.
+            (self.src.position() - 4, self.item_tag.unwrap(), self.item_type.unwrap())
+        };
+        let group_len = self.read_length()?;
+        let group_end = (self.pos() + (group_len as usize)) as u64;
+
+        let wanted_tag =
+            ItemTag::from_str(name).map_err(|_| self.error(caller_fn_name, &format!("'{}' is not a tag", name)))?;
+
+        if group_tag != wanted_tag {
+            return Err(self.error(
+                caller_fn_name,
+                &format!("Wanted tag '{}' but found '{}'", wanted_tag, group_tag),
+            ));
+        }
+
+        if group_type != ItemType::Structure {
+            return Err(self.error(
+                caller_fn_name,
+                &format!("Wanted type '{:?}' but found '{:?}'", ItemType::Structure, group_type),
+            ));
+        }
+
+        Ok((group_start, group_tag, group_type, group_end))
+    }
+
+    fn is_variant_applicable(&self, variant: &'static str) -> Result<bool> {
+        if let Some((wanted_enum_tag, wanted_enum_val)) = variant.strip_prefix("if ").unwrap_or("").split_once("==") {
+            // Have we earlier seen a TTLV enum with tag 'enum_tag' and if so was its value 'enum_val'? If
+            // so then this is the variant name to announce to Serde that we are deserializing into.
+            if let Some(seen_enum_val) = self.unit_enum_store.borrow().get(&ItemTag::from_str(wanted_enum_tag)?) {
+                if *seen_enum_val == wanted_enum_val {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+}
+
+impl<'de: 'c, 'c> ContextualErrorSupport for TtlvDeserializer<'de, 'c> {
+    fn pos(&self) -> usize {
+        self.src.position() as usize
+    }
+
+    fn buf(&self) -> &[u8] {
+        self.src.get_ref()
+    }
+}
+
+impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
+    type Error = Error;
+
+    /// Deserialize the bytes at the current cursor position to a Rust structure.
     ///
-    /// ```text
+    /// The use of a Rust structure by the caller is assumed to signify that the TTLV item should be of TTLV type
+    /// "Structure". E.g. given something like:
+    ///
+    /// ```ignore
     /// #[derive(Deserialize)]
-    /// #[serde(rename = "0xAABBCC")]
-    /// struct MyType {
-    ///     some_num: i32
+    /// #[serde(rename = "0x012345")]
+    /// struct MyStruct {
+    ///    a: i32,
+    ///    b: MyOtherStruct,
     /// }
     /// ```
     ///
-    /// Then we will be invoked as deserialize_struct(self, "0xAABBCC", ["some_num"], visitor). Notice that we lose any
-    /// knowledge of the struct name, but that has no meaning for us anyway as it is a name the client chooses that is
-    /// most meaningful to their domain. We need to know the TTLV tag value, the 0xAABBCC, so that we can check that the
-    /// TTLV tree or subtree that we are currently processing is for the same tag as specified by the client and thus we
-    /// are putting the right data into the target struct, not by accident putting some arbitrary integer value into
-    /// some_num but instead only the integer value that was transmitted over the wire as belonging to TTLV tag
-    /// 0xAABBCC.
+    /// This function will be invoked with the `name` parameter set to `0x012345` (or `MyStruct` if `rename` were not
+    /// used), with the `fields` parameter set to `['a', 'b']`. Serde requires that we delegate to either `visit_map()`
+    /// or `visit_seq()`. These delegates are responsible for issuing key/value pairs that correspond to the struct
+    /// fields (e.g. `a` and `b` in the example above) being processed by Serde.
     ///
-    /// We can use the given count of field names (but not their values as they have no meaning to us) to know how many
-    /// TTLV structure fields we should publish to the visitor in order to finish populating the client struct.
+    /// For keys serde invokes `deserialize_identifier()` to parse out the field name from the byte stream and pass it
+    /// to `visit_str()`.
+    ///
+    /// For values serde invokes the corresponding trait function in this impl, e.g. `deserialize_i32()`, to
+    /// parse out the TTLV value and pass it to the corresponding visit function such as `visit_i32()`. For
+    /// complex types such as a struct or vec the `deserialize_struct` (i.e. recursion) or `deserialize_seq` will be
+    /// invoked.
+    ///
+    /// We have to be careful to handle correctly the fact that the Rust structure fields are "children" in the TTLV
+    /// byte stream of a TTLV structure, e.g. for the example above the byte stream might contain TTLV bytes like so:
+    ///
+    /// ```text
+    ///   TTLVVVVVVVVVVVVVVVVVV <- the TTLV representation of 'MyStruct'
+    ///      TTLVVTTLVVVVVVVVVV <- the TTLV representation of 'a' and 'b' within 'MyStruct'
+    /// ```
+    ///
+    /// Furthermore, field order in TTLV matters. We remember the given fields and if we encounter a field other than
+    /// the one that we expect we flag it as unexpected. We can't immediately reject it because it could be that the
+    /// caller wrapped the type to deserialize to in a Rust `Option` indicating that the TTLV item is optional. If when
+    /// Serde asks us to process the value we will raise an error if we are not asked to process an `Option`.
     fn deserialize_struct<V>(self, name: &'static str, fields: &'static [&'static str], visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        // Serde documentation says that:
-        //
-        //     "The implementation supports two possible ways that a struct may be represented by a data format: as a
-        //      seq like in Bincode, and as a map like in JSON."
-        //
-        //     Source: https://serde.rs/deserialize-struct.html
-        //
-        // The SeqAccess trait expects a sequence of elements, while the MapAccess trait expects a sequence of element
-        // key value pairs. TTLV structs are a sequence of tagged (i.e. keyed) values and thus match the MapAccess
-        // approach.
+        let (_, group_tag, group_type, group_end) = self.prepare_to_descend("deserialize_struct", name)?;
 
-        visitor.visit_map(TtlvStructureFieldAccess::new(
-            self.src.clone(),
+        let mut struct_cursor = self.src.clone();
+
+        let descendent_parser = TtlvDeserializer::from_cursor(
+            &mut struct_cursor,
+            group_tag,
+            group_type,
+            group_end,
             fields,
-            ItemTag::from_str(name).ok(),
-        ))
-    }
+            self.unit_enum_store.clone(),
+        );
 
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(Error::DeserializeError)
-    }
-}
+        let r = visitor.visit_map(descendent_parser)?; // jumps to impl MapAccess below
 
-//======================================================================================================================
-// HELPER FUNCTIONS
-//======================================================================================================================
+        // The descendant parser cursor advanced but ours did not. Skip the tag that we just read.
+        self.src.set_position(struct_cursor.position());
 
-fn read_item_tag(src: &mut Cursor<&[u8]>) -> Result<ItemTag> {
-    let mut raw_item_tag = [0u8; 3];
-    src.read_exact(&mut raw_item_tag)?;
-    let item_tag = ItemTag::from(raw_item_tag);
-    Ok(item_tag)
-}
-
-fn read_raw_item_type(src: &mut Cursor<&[u8]>) -> Result<u8> {
-    let mut raw_item_type = [0u8; 1];
-    src.read_exact(&mut raw_item_type)?;
-    Ok(raw_item_type[0])
-}
-
-fn read_value_length(src: &mut Cursor<&[u8]>) -> Result<u32> {
-    let mut value_length = [0u8; 4];
-    src.read_exact(&mut value_length)?;
-    Ok(u32::from_be_bytes(value_length))
-}
-
-//======================================================================================================================
-// STRUCTURE FIELD ACCESS DESERIALIZATION HELPER
-//======================================================================================================================
-
-struct TtlvStructureFieldAccess<'de> {
-    src: Cursor<&'de [u8]>,
-    fields: &'static [&'static str],
-    read_field_count: usize,
-    expected_tag: Option<ItemTag>,
-    end_pos: Option<u64>,
-    struct_start_pos: Option<u64>,
-    item_type: Option<u8>,
-    enum_tag_positions: Rc<RefCell<HashMap<ItemTag, String>>>,
-    unexpected_tag_found: bool,
-}
-
-impl<'de> TtlvStructureFieldAccess<'de> {
-    fn new(src: Cursor<&'de [u8]>, fields: &'static [&'static str], expected_tag: Option<ItemTag>) -> Self {
-        Self {
-            src,
-            fields,
-            read_field_count: 0,
-            expected_tag,
-            end_pos: None,
-            struct_start_pos: None,
-            item_type: None,
-            enum_tag_positions: Rc::new(RefCell::new(HashMap::new())),
-            unexpected_tag_found: false,
-        }
-    }
-}
-
-impl<'de> MapAccess<'de> for TtlvStructureFieldAccess<'de> {
-    type Error = Error;
-
-    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>>
-    where
-        K: serde::de::DeserializeSeed<'de>,
-    {
-        if self.end_pos.is_some() {
-            // We're already initialized so we must have just read a key and a value. Bump the count of fields read.
-            self.read_field_count += 1;
-        } else {
-            // We haven't read the structure header yet. Verify that we indeed that the next bytes in the buffer define
-            // a TTLV structure and find out how long the structure is so that we don't attempt to read structure fields
-            // beyond the end of the TTLV structure value bytes.
-            let item_tag = read_item_tag(&mut self.src)?;
-            if let Some(expected_tag) = self.expected_tag {
-                if item_tag != expected_tag {
-                    return Err(Error::UnexpectedTtlvTag(expected_tag, item_tag.to_string()));
-                }
-            }
-
-            let item_type = read_raw_item_type(&mut self.src)?;
-            if item_type != (ItemType::Structure as u8) {
-                return Err(Error::UnexpectedTtlvType(ItemType::Structure, item_type));
-            }
-
-            // Note: it's unclear from the KMIP v1.0 spec if the value length is an unsigned integer, or a KMIP Integer,
-            // or a 2's complement integer... assuming for now that's it a big endian u32.
-            let value_length = read_value_length(&mut self.src)?;
-
-            // Remember the end position of this structure so that when reading subsequent keys we can check that we
-            // haven't reached the end of the structure.
-            self.end_pos = Some(self.src.position() + (value_length as u64));
-        }
-
-        // Have we already read the expected number of fields?
-        if self.read_field_count >= self.fields.len() {
-            return Ok(None);
-        }
-
-        // Have we reached the end of the structure value?
-        if self.src.position() >= self.end_pos.unwrap() {
-            return Ok(None);
-        }
-
-        self.struct_start_pos = Some(self.src.position());
-        self.item_type = None;
-        self.unexpected_tag_found = false;
-
-        seed.deserialize(self).map(Some)
-    }
-
-    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value>
-    where
-        V: serde::de::DeserializeSeed<'de>,
-    {
-        // sanity checks
-        if self.end_pos.is_none() {
-            return Err(Error::DeserializeError);
-        }
-
-        if self.read_field_count >= self.fields.len() {
-            return Err(Error::DeserializeError);
-        }
-
-        if self.src.position() > self.end_pos.unwrap() {
-            return Err(Error::DeserializeError);
-        }
-
-        self.item_type = Some(read_raw_item_type(&mut self.src)?);
-
-        seed.deserialize(self)
-    }
-}
-
-impl<'de> SeqAccess<'de> for TtlvStructureFieldAccess<'de> {
-    type Error = Error;
-
-    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>>
-    where
-        T: serde::de::DeserializeSeed<'de>,
-    {
-        // sanity checks
-        if self.end_pos.is_none() {
-            return Err(Error::DeserializeError);
-        }
-
-        match self.src.position().cmp(&self.end_pos.unwrap()) {
-            Ordering::Less => {
-                // We're not done yet, keep going...
-            }
-            Ordering::Equal => {
-                // This is the end of the structure that contains this sequence
-                return Ok(None);
-            }
-            Ordering::Greater => {
-                // We ran off the end of the buffer, this shouldn't be possible!
-                return Err(Error::DeserializeError);
-            }
-        }
-
-        seed.deserialize(self).map(Some)
-    }
-}
-
-struct TtlvEnumVariantAccess<'de> {
-    src: Cursor<&'de [u8]>,
-    enum_tag_positions: Rc<RefCell<HashMap<ItemTag, String>>>,
-}
-
-impl<'de> TtlvEnumVariantAccess<'de> {
-    fn new(src: Cursor<&'de [u8]>, enum_tag_positions: Rc<RefCell<HashMap<ItemTag, String>>>) -> Self {
-        Self {
-            src,
-            enum_tag_positions,
-        }
-    }
-}
-
-impl<'de> EnumAccess<'de> for TtlvEnumVariantAccess<'de> {
-    type Error = Error;
-    type Variant = Self;
-
-    fn variant_seed<V>(mut self, seed: V) -> Result<(V::Value, Self::Variant)>
-    where
-        V: serde::de::DeserializeSeed<'de>,
-    {
-        let val = seed.deserialize(&mut self)?;
-        Ok((val, self))
-    }
-}
-
-impl<'de> VariantAccess<'de> for TtlvEnumVariantAccess<'de> {
-    type Error = Error;
-
-    fn unit_variant(self) -> Result<()> {
-        Ok(())
-    }
-
-    fn newtype_variant_seed<T>(self, _seed: T) -> Result<T::Value>
-    where
-        T: serde::de::DeserializeSeed<'de>,
-    {
-        unimplemented!()
-    }
-
-    fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-
-    fn struct_variant<V>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-}
-
-impl<'de> Deserializer<'de> for &mut TtlvEnumVariantAccess<'de> {
-    type Error = Error;
-
-    serde::forward_to_deserialize_any! {
-        bool u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 char str string bytes byte_buf map option unit
-        ignored_any unit_struct tuple_struct tuple enum newtype_struct seq struct
-    }
-
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.src.set_position(self.src.position() - 4);
-        let item_tag = read_item_tag(&mut self.src)?;
-        let item_type = read_raw_item_type(&mut self.src)?;
-        if item_type != (ItemType::Enumeration as u8) {
-            return Err(Error::DeserializeError);
-        }
-        let v = TtlvEnumeration::read(&mut self.src)?;
-        let n = format!("0x{}", hex::encode_upper(v.to_be_bytes()));
-        let mut map: RefMut<_> = self.enum_tag_positions.borrow_mut();
-        map.insert(item_tag, n.clone());
-        visitor.visit_string(n)
-    }
-}
-
-///
-
-struct TtlvEnumOneVariantAccess<'de> {
-    src: Cursor<&'de [u8]>,
-    one_variant: &'static str,
-}
-
-impl<'de> TtlvEnumOneVariantAccess<'de> {
-    fn new(src: Cursor<&'de [u8]>, one_variant: &'static str) -> Self {
-        Self { src, one_variant }
-    }
-}
-
-impl<'de> EnumAccess<'de> for TtlvEnumOneVariantAccess<'de> {
-    type Error = Error;
-    type Variant = Self;
-
-    fn variant_seed<V>(mut self, seed: V) -> Result<(V::Value, Self::Variant)>
-    where
-        V: serde::de::DeserializeSeed<'de>,
-    {
-        let val = seed.deserialize(&mut self)?;
-        Ok((val, self))
-    }
-}
-
-impl<'de> VariantAccess<'de> for TtlvEnumOneVariantAccess<'de> {
-    type Error = Error;
-
-    fn unit_variant(self) -> Result<()> {
-        //Ok(())
-        unimplemented!()
-    }
-
-    fn newtype_variant_seed<T>(mut self, seed: T) -> Result<T::Value>
-    where
-        T: serde::de::DeserializeSeed<'de>,
-    {
-        seed.deserialize(&mut self)
-    }
-
-    fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-
-    fn struct_variant<V>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-}
-
-impl<'de> Deserializer<'de> for &mut TtlvEnumOneVariantAccess<'de> {
-    type Error = Error;
-
-    serde::forward_to_deserialize_any! {
-        bool u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 char str string bytes byte_buf map option unit
-        ignored_any unit_struct tuple_struct tuple enum newtype_struct seq
-    }
-
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_str(self.one_variant)
-    }
-
-    fn deserialize_struct<V>(self, name: &'static str, fields: &'static [&'static str], visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_map(TtlvStructureFieldAccess::new(
-            self.src.clone(),
-            fields,
-            ItemTag::from_str(name).ok(),
-        ))
-    }
-}
-
-///
-
-impl<'de> Deserializer<'de> for &mut TtlvStructureFieldAccess<'de> {
-    type Error = Error;
-
-    serde::forward_to_deserialize_any! {
-        bool u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 char str string bytes byte_buf map unit
-        ignored_any unit_struct tuple_struct tuple
-    }
-
-    /// Invoked to deserialize struct field keys.
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        // Expect the next bytes in the buffer to be the start of a TTLV.
-        let item_tag = read_item_tag(&mut self.src)?;
-
-        let expected_tag_str = self.fields.get(self.read_field_count).ok_or(Error::DeserializeError)?;
-        let expected_tag = ItemTag::from_str(expected_tag_str)?;
-        if item_tag != expected_tag {
-            // This is not an error if the field in the client struct is optional as we may then not see it in the TTLV
-            // stream we are deserializing.
-            self.unexpected_tag_found = true;
-        }
-        visitor.visit_str(expected_tag_str)
-    }
-
-    fn deserialize_struct<V>(self, name: &'static str, fields: &'static [&'static str], visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let mut inner_cursor = self.src.clone();
-        inner_cursor.set_position(self.struct_start_pos.unwrap());
-
-        let r = visitor.visit_map(TtlvStructureFieldAccess::new(
-            inner_cursor,
-            fields,
-            ItemTag::from_str(name).ok(),
-        ))?;
-
-        // Reset our cursor as we let the field accessor modify the underlying buffer using its own cursor and so ours
-        // no longer reflects the correct read position. We know however that we finished processing the struct and so
-        // the next read position must be after the struct. Find out where the end of the struct is and skip it.
-        self.src.set_position(self.struct_start_pos.unwrap() + 4);
-        let len_to_skip = read_value_length(&mut self.src)? as u64;
-        self.src.set_position(self.src.position() + len_to_skip);
         Ok(r)
     }
 
-    // e.g.
-    //    #[derive(Debug, Deserialize)]
-    //    #[serde(rename = "0x42000D")]
-    //    struct BatchCount(i32);
-    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        // Assume we have been called from deserialize_value_seed() and that the item tag has already been read.
-        visitor.visit_newtype_struct(self)
-    }
-
-    // e.g.
-    //   #[serde(rename = "0x42000F")]
-    //   items: Vec<BatchItem>,
+    /// Deserialize the bytes at the current cursor position to a Rust vector.
+    ///
+    /// The use of a Rust vector by the caller is assumed to signify that the next items in the TTLV byte stream will
+    /// represent an instance of "MAY be repeated" in the KMIP 1.0 spec. E.g. for [section 4.24 Query of the KMIP 1.0 spec](https://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc262581232)
+    /// for the Query operation response, one could represent the response like so:
+    ///
+    /// ```ignore
+    /// struct QueryResponsePayload {     // OBJECT       REQUIRED
+    ///    operations: Vec<Operation>,    // Operation    No, MAY be repeated
+    ///    object_types: Vec<ObjectType>, // Object Type  No, MAY be repeated
+    ///    ...
+    /// }
+    /// ```
+    ///
+    /// _(the inline comments quote the relevant parts of the KMIP 1.0 spec)_
+    ///
+    /// The KMIP 1.0 spec does not define the terminating conditions for a field that "MAY be repeated. This
+    /// deserializer assumes that the sequence is limited by the L_ength of the TTLV item that contains it and that to
+    /// be considered part of a "MAY be repeated" sequence the TTLV item must have the same tag and type as the previous
+    /// items. Otherwise two adjacent "MAY be repeated" sequences within the same parent TTLV "Structure" would not have
+    /// a clear boundary indicating when one sequence ends and the other starts. For example, checking the tag and type
+    /// are needed to know whether the next TTLV item in the QueryResponsePayload example above is another item in the
+    /// operations vector or is the first item in the object_types vector.
+    ///
+    /// When deserializing a structure the initial TTL is a sort of header for the structure, with the structure field
+    /// values following the header as individual TTLV Items. When deserializing a sequence however the initial TTL is
+    /// not separate to but rather belongs to the first item in the sequence.
     fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_seq(self)
+        let seq_start = self.item_start;
+        let seq_tag = self.item_tag.unwrap();
+        let seq_type = self.item_type.unwrap();
+        let seq_end = self.group_end.unwrap();
+
+        // We just read the tag, type and length but each item in the sequence needs to be read in its entirety as a
+        // whole TTLV item so rewind the cursor that we give to the SeqAccess impl back to the start of the TTLV item.
+        let mut seq_cursor = self.src.clone();
+        seq_cursor.set_position(seq_start);
+
+        let descendent_parser = TtlvDeserializer::from_cursor(
+            &mut seq_cursor,
+            seq_tag,
+            seq_type,
+            seq_end,
+            &[],
+            self.unit_enum_store.clone(),
+        );
+
+        let r = visitor.visit_seq(descendent_parser)?; // jumps to impl SeqAccess below
+
+        // The descendant parser cursor advanced but ours did not. Skip the tag that we just read.
+        self.src.set_position(seq_cursor.position());
+
+        Ok(r)
     }
 
-    fn deserialize_enum<V>(self, _name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        // are we really deserializing an enum, or is an enum being used as a way to select one of many structs into
-        // which to deserialize and the next value in the data is actually a TTLV structure?
-        match self.item_type {
-            Some(item_type) if item_type == (ItemType::Enumeration as u8) => {
-                let r = visitor.visit_enum(TtlvEnumVariantAccess::new(
-                    self.src.clone(),
-                    self.enum_tag_positions.clone(),
-                ))?;
-                // Skip the enum value length and value fields as we just processed them.
-                self.src.set_position(self.src.position() + 12);
-                Ok(r)
-            }
-            Some(item_type) if item_type == (ItemType::Structure as u8) => {
-                // IDEA: if _variants[n] is of the form "0xA==0xB" find 0xA in the byte stream (going backwards from
-                // our current position) and assume it is the tag of an Enumeration TTLV, read out its value and see if
-                // it matches 0xB. For the _variants[n] entry that satisfies this test, cause an EnumAccess instance to
-                // call visitor.string(str) from its `fn deserialize_identifier()`. E.g. if 0xA were found, the str
-                // value would be the whole of "0xA==0xB" thereby causing Serde to pick that enum variant. An example of
-                // this could be selecting the right Response Payload enum variant based on the previous Operation enum
-                // value.
-                for v in variants {
-                    if let Some((enum_tag, enum_val)) = v.strip_prefix("if ").unwrap_or("").split_once("==") {
-                        if let Some(val) = self.enum_tag_positions.borrow().get(&ItemTag::from_str(enum_tag)?) {
-                            if val == enum_val {
-                                // Use this variant
-
-                                // if we are going to treat this as a structure we need to walk back to the start of the
-                                // tag
-                                let mut inner_src = self.src.clone();
-                                inner_src.set_position(self.struct_start_pos.unwrap());
-                                let r = visitor.visit_enum(TtlvEnumOneVariantAccess::new(inner_src, v))?;
-                                // Skip the enum value length and value fields as we just processed them.
-                                self.src.set_position(self.src.position() + 12);
-                                return Ok(r);
-                            }
-                        }
-                    }
-                }
-
-                Err(Error::DeserializeError)
-            }
-            Some(item_type) => Err(Error::UnexpectedTtlvType(ItemType::Enumeration, item_type)),
-            None => Err(Error::DeserializeError),
-        }
-    }
-
+    /// Deserialize the bytes at the current cursor position to a Rust Option.
+    ///
+    /// The TTLV format has no explicit support for optional items, though a client and server may agree that it is okay
+    /// for a particular point in the TTLV byte stream to optionally contain a particular TTLV item. For example the
+    /// KMIP 1.0 spec labels some response fields as NOT required i.e. optional. To handle such cases the caller can use
+    /// the Rust Option type in the datatype being deserialized into. As TTLV has no explicit mechanism to indicate a
+    /// NULL or missing value, the caller MUST treat missing fields that deserialize to an `Option` as `None`. For
+    /// example:
+    ///
+    /// ```ignore
+    /// #[derive(Deserialize)]
+    /// #[serde(rename = "0x42000F")]
+    /// pub struct BatchItem {
+    ///     #[serde(default)]
+    ///     pub operation: Option<Operation>,
+    ///     ...
+    /// }
+    /// ```
+    ///
+    /// Here we see a KMIP BatchItem response structure with an optional field and the use of `#[serde(default)]` to set
+    /// the member field to `None` if the corresponding TTLV item is not found while deserializing.
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        // There is nothing in the TTLV data that says whether a value is present or not, it has no notion of a null
-        // value in the data. So if the caller uses Option in the struct we are deserializing into this can only be
-        // handled by detecting that the item tag they were expecting is not the one we found, i.e. the field they were
-        // looking for is "null". When we checked the item tag we set a flag to say whether or not the tag we found was
-        // the one we expected. Check that flag here, and if it wasn't the one that was expected "put it back" to be
-        // consumed again for the next client struct field instead of this one.
-        if self.unexpected_tag_found {
-            self.src.set_position(self.struct_start_pos.unwrap()); // TODO: I'm not sure that struct_start_pos is the
-                                                                   // right name for the value stored in the field,
-                                                                   // check the logic.
+        // The tag has already been read, now we are handling the value. How can we know that this item is NOT the one
+        // that was intended to fill the Option and thus the item is missing and the Option should be
+
+        // Is this the field we expected at this point?
+        if self.item_unexpected {
+            // This isn't the item that the caller expected but they indicated that the expected item was optional.
+            // Report back that the optional item was not found and rewind the read cursor so that we will visit this
+            // TTLV tag again.
+            self.src.set_position(self.item_start);
             visitor.visit_none()
         } else {
             visitor.visit_some(self)
         }
     }
 
-    /// Invoked to deserialize struct field values.
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value>
+    /// Deserialize the bytes at the current cursor position to a Rust unit-like enum variant or struct enum variant.
+    ///
+    /// # Unit-like enum variants
+    ///
+    /// Rust enum variants can be unit-like or can have data attached to them. The unit-like form should be used when
+    /// the TTLV bytes being deserialized are of type "Enumeration". Serde will use the deserialized unsigned 32-bit
+    /// value to select a variant with matching name. By using the serde-derive rename feature we can associate each
+    /// enum variant with a single TTLV "Enumeration" value. For example one could define the first few values of the
+    /// KMIP "Operation" Enumeration like so:
+    ///
+    /// ```ignore
+    /// #[derive(Deserialize, Serialize, Display)]
+    /// #[serde(rename = "0x42005C")]
+    /// #[non_exhaustive]
+    /// pub enum Operation {
+    ///     #[serde(rename = "0x00000001")]
+    ///     Create,
+    ///
+    ///     #[serde(rename = "0x00000002")]
+    ///     CreateKeyPair,
+    ///
+    ///     #[serde(rename = "0x00000003")]
+    ///     Register,
+    /// ```
+    ///
+    /// These enum variants are referred to as unit-like as they have no associated data, i.e. the variants have the
+    /// form `Create` rather than `Create(...some associated data...)`.
+    ///
+    /// The TTLV byte sequence `42005C05000000040000000200000000` will be deserialized as tag `0x42005C`, type 0x05
+    /// (Enumeration), value length 4 (bytes) and a 4-byte 0x00000002 value with 4 bytes of padding. Serde will be
+    /// notified that the callers identifier with name "0x00000002" should have the value `Operation::CreateKeyPair`.
+    ///
+    /// # Struct enum variants
+    ///
+    /// By using an enum with struct variants the caller signals to the deserializer that it expects the TTLV byte
+    /// stream to contain a TTLV "Structure" item that can be deserialized into one of the variant structs, but which
+    /// one? For this to work we must also give the deserializer a way of determining from the data deserialized so far
+    /// which of the variants is represented by the TTLV byte stream. We do this by using a serde "name" with a special
+    /// syntax of the form `if A==B`.
+    ///
+    /// Let's see this in action using the variable KMIP response payload structure layout as an example where the
+    /// payload structure to deserialize is indicated by the KMIP Operation enum value that appears earlier in the TTLV
+    /// byte stream:
+    ///
+    /// First we define a struct that contains the variable payload as a member field:
+    ///
+    /// ```ignore
+    /// #[derive(Deserialize)]
+    /// #[serde(rename = "0x42000F")]
+    /// pub struct BatchItem {
+    ///     pub operation: Option<Operation>,
+    ///     pub payload: Option<ResponsePayload>,
+    /// }
+    /// ```
+    ///
+    /// Then we define the variable payload type as an enum whose variants have different Rust structures attached to
+    /// them. We also signal to the deserializer how each variant is selected by some other value in the TTLV byte
+    /// stream:
+    ///
+    /// ```ignore
+    /// #[derive(Deserialize)]
+    /// #[serde(rename = "0x42007C")]
+    /// #[non_exhaustive]
+    /// pub enum ResponsePayload {
+    ///     #[serde(rename = "if 0x42005C==0x00000001")]
+    ///     Create(CreateResponsePayload),
+    ///
+    ///     #[serde(rename = "if 0x42005C==0x00000002")]
+    ///     CreateKeyPair(CreateKeyPairResponsePayload),
+    ///
+    ///     #[serde(rename = "if 0x42005C==0x00000003")]
+    ///     Register(RegisterResponsePayload),
+    /// }
+    /// ```
+    ///
+    /// Where `CreateResponsePayload`, `CreateKeyPairResponsePayload` and `RegisterResponsePayload` are Rust structs
+    /// defined elsewhere.
+    ///
+    /// The special name syntax `if A==B` is used here to select the correct variant by matching against the value of
+    /// another enum, "Operation", seen earlier in the TTLV byte stream. A TTLV byte sequence of the form
+    /// `42000F01LLLLLLLL42005C0500000004000000020000000042007C01LLLLLLLLV...` would be deserialized as operation code
+    /// 0x00000002 indicating that the payload is of type `CreateKeyPairResponsePayload`.
+    fn deserialize_enum<V>(self, name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        match ItemType::try_from(self.item_type.unwrap())? {
-            ItemType::Integer => {
-                let v = TtlvInteger::read(&mut self.src)?;
-                visitor.visit_i32(*v)
+        // We don't know which type of enum the caller is deserializing into nor without guidance do we even know which
+        // variant to announce to Serde that we are populating. We assume that the caller knows whether to expect a
+        // structure or a single integer value in the TTLV byte stream at this point and that they therefore correctly
+        // specified a tuple/tuple-struct enum variant or a unit-like variant as the datatype being deserialized into.
+        //
+        // We can only do two things:
+        //   1. Deserialize the type of TTLV item that we find at this point in the byte stream.
+        //
+        //   2. Announce to serde either the TTLV tag as the variant name, or if the enum name is in the special form
+        //      "if A==B" attempt to see if a previously read enum value tells us which variant to announce at this
+        //      point.
+        //
+        // So:
+        //
+        // 1: Deserialize according to the TTLV item type:
+        match self.item_type {
+            Some(ItemType::Enumeration) => {
+                // 2: Read a TTLV enumeration from the byte stream and announce the read value as the enum variant name.
+                let enum_val = TtlvEnumeration::read(self.src)?;
+                let enum_hex = format!("0x{}", hex::encode_upper(enum_val.to_be_bytes()));
+
+                // Insert or replace the last value seen for this enum in our enum value lookup table
+                {
+                    let mut map: RefMut<_> = self.unit_enum_store.borrow_mut();
+                    map.insert(self.item_tag.unwrap(), enum_hex.clone());
+                }
+
+                self.item_identifier = Some(enum_hex);
+                visitor.visit_enum(&mut *self) // jumps to impl EnumAccess (ending at unit_variant()) below
             }
+            Some(ItemType::Structure) => {
+                // 2: Lookup the variant to announce and if found read a TTLV structure from the byte stream.
+                //    This enables handling of cases such as a BatchItem.operation enum field that indicates the enum
+                //    variant and thus structure type of BatchItem.payload that this TTLV structure should be
+                //    deserialized into.
+
+                // Check each enum variant name to see if it is of the form "if enum_tag==enum_val" and if so extract
+                // enum_tag and enum_value:
+                for v in variants {
+                    if self.is_variant_applicable(v)? {
+                        self.item_identifier = Some(v.to_string());
+                        break;
+                    }
+                }
+
+                // If we couldn't work out the correct variant name to announce to serde, announce the enum tag as the
+                // variant name and let Serde handle it in case the caller has used `#[serde(other)]` to mark one
+                // variant as the default.
+                if self.item_identifier.is_none() {
+                    self.item_identifier = Some(self.item_tag.unwrap().to_string());
+                }
+
+                visitor.visit_enum(&mut *self) // jumps to impl EnumAccess below
+            }
+            Some(item_type) => Err(self.error(
+                "deserialize_enum",
+                &format!(
+                    "TTLV item type '{:?}' for enum '{}' cannot be deserialized into an enum",
+                    item_type, name
+                ),
+            )),
+            None => Err(self.error(
+                "deserialize_enum",
+                &format!("TTLV item type for enum '{}' has not yet been read", name),
+            )),
+        }
+    }
+
+    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        if let Some(identifier) = &self.item_identifier {
+            visitor.visit_str(identifier)
+        } else {
+            Err(self.error("deserialize_identifier", "No identifier available!"))
+        }
+    }
+
+    fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let v = TtlvInteger::read(&mut self.src)?;
+        visitor.visit_i32(*v)
+    }
+
+    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        match self.item_type.unwrap() {
             ItemType::LongInteger => {
                 let v = TtlvLongInteger::read(&mut self.src)?;
                 visitor.visit_i64(*v)
-            }
-            ItemType::Enumeration => {
-                let r = visitor.visit_enum(TtlvEnumVariantAccess::new(
-                    self.src.clone(),
-                    self.enum_tag_positions.clone(),
-                ))?;
-                // Skip the enum value length and value fields as we just processed them.
-                self.src.set_position(self.src.position() + 12);
-                Ok(r)
-            }
-            ItemType::Boolean => {
-                unimplemented!()
-            }
-            ItemType::TextString => {
-                let v = TtlvTextString::read(&mut self.src)?;
-                visitor.visit_string(v.0)
             }
             ItemType::DateTime => {
                 let v = TtlvDateTime::read(&mut self.src)?;
                 visitor.visit_i64(*v)
             }
-            ItemType::Structure => Err(Error::DeserializeError),
+            _ => Err(self.error(
+                "deserialize_i64",
+                &format!(
+                    "Cannot deserialize item type {:?} for tag {} as i64",
+                    self.item_type.unwrap(),
+                    self.item_tag.unwrap()
+                ),
+            )),
         }
+    }
+
+    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let v = TtlvBoolean::read(&mut self.src)?;
+        visitor.visit_bool(*v)
+    }
+
+    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let v = TtlvTextString::read(&mut self.src)?;
+        visitor.visit_string(v.0)
+    }
+
+    // dummy implementations of unsupported types so that we can give back a more useful error message than when using
+    // `forward_to_deserialize_any()` as the latter doesn't make available the type currently being deserialized into.
+
+    fn deserialize_u8<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_u8",
+            "Deserializing TTLV to the Rust u8 type is not supported.",
+        ))
+    }
+
+    fn deserialize_u16<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_u16",
+            "Deserializing TTLV to the Rust u16 type is not supported.",
+        ))
+    }
+
+    fn deserialize_u32<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_u32",
+            "Deserializing TTLV to the Rust u32 type is not supported.",
+        ))
+    }
+
+    fn deserialize_u64<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_u64",
+            "Deserializing TTLV to the Rust u64 type is not supported.",
+        ))
+    }
+
+    fn deserialize_i8<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_i8",
+            "Deserializing TTLV to the Rust i8 type is not supported.",
+        ))
+    }
+
+    fn deserialize_i16<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_i16",
+            "Deserializing TTLV to the Rust i16 type is not supported.",
+        ))
+    }
+
+    fn deserialize_f32<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_f32",
+            "Deserializing TTLV to the Rust f32 type is not supported.",
+        ))
+    }
+
+    fn deserialize_f64<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_f64",
+            "Deserializing TTLV to the Rust f64 type is not supported.",
+        ))
+    }
+
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_char",
+            "Deserializing TTLV to the Rust char type is not supported.",
+        ))
+    }
+
+    fn deserialize_str<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_str",
+            "Deserializing TTLV to the Rust str type is not supported.",
+        ))
+    }
+
+    fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_map",
+            "Deserializing TTLV to Serde as a map is not supported.",
+        ))
+    }
+
+    fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_bytes",
+            "Deserializing TTLV to Serde as bytes is not supported.",
+        ))
+    }
+
+    fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_byte_buf",
+            "Deserializing TTLV to Serde as a byte buf is not supported.",
+        ))
+    }
+
+    fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_unit",
+            "Deserializing TTLV to Serde as a unit is not supported.",
+        ))
+    }
+
+    /// Deserialize the bytes at the current cursor location into .. anything.
+    ///
+    /// This function shouldn't be invoked when using Serde derive as deserialization is being guided by a strongly
+    /// typed model to deserialize into.
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_ignored_any",
+            "Deserializing TTLV to Serde as ignored any is not supported.",
+        ))
+    }
+
+    fn deserialize_unit_struct<V>(self, _name: &'static str, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_unit_struct",
+            "Deserializing TTLV to Serde as a unit struct is not supported.",
+        ))
+    }
+
+    fn deserialize_tuple_struct<V>(self, _name: &'static str, _len: usize, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_tuple_struct",
+            "Deserializing TTLV to Serde as a tuple struct is not supported.",
+        ))
+    }
+
+    fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_tuple",
+            "Deserializing TTLV to Serde as a tuple is not supported.",
+        ))
+    }
+
+    fn deserialize_newtype_struct<V>(self, _name: &'static str, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_newtype_struct",
+            "Deserializing TTLV to Serde as a newtype struct is not supported.",
+        ))
+    }
+
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "deserialize_any",
+            &format!(
+                "unsupported tag {} type {}",
+                self.item_tag.unwrap(),
+                self.item_type.unwrap() as u8
+            ),
+        ))
+    }
+}
+
+// Deserialize structure members
+impl<'de: 'c, 'c> MapAccess<'de> for TtlvDeserializer<'de, 'c> {
+    type Error = Error;
+
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>>
+    where
+        K: serde::de::DeserializeSeed<'de>,
+    {
+        if self.read_item_key("next_key_seed")? {
+            seed.deserialize(self).map(Some) // jumps to deserialize_identifier() above
+        } else {
+            // The end of the group was reached
+            Ok(None)
+        }
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value>
+    where
+        V: serde::de::DeserializeSeed<'de>,
+    {
+        seed.deserialize(self) // jumps to deserialize_xxx() in impl Deserializer above
+    }
+}
+
+// Deserialize a Vec of one type/tag
+impl<'de: 'c, 'c> SeqAccess<'de> for TtlvDeserializer<'de, 'c> {
+    type Error = Error;
+
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>>
+    where
+        T: serde::de::DeserializeSeed<'de>,
+    {
+        if !self.read_item_key("next_element_seed")? {
+            // The end of the containing group was reached
+            Ok(None)
+        } else if self.item_tag != self.group_tag || self.item_type != self.group_type {
+            // The next tag is not part of the sequence.
+            // Walk the cursor back before the tag because we didn't consume it.
+            self.src.set_position(self.item_start);
+            Ok(None)
+        } else {
+            // The tag and type match that of the first item in the sequence, process this element.
+            seed.deserialize(self).map(Some) // jumps to deserialize_identifier() above
+        }
+    }
+}
+
+// Deserialize an enum
+impl<'de: 'c, 'c> EnumAccess<'de> for &mut TtlvDeserializer<'de, 'c> {
+    type Error = Error;
+    type Variant = Self;
+
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant)>
+    where
+        V: serde::de::DeserializeSeed<'de>,
+    {
+        let val = seed.deserialize(&mut *self)?; // jumps to deserialize_identifier() above
+        Ok((val, self)) // jumps to VariantAccess below
+    }
+}
+
+// Deserialize a variant of an enum
+impl<'de: 'c, 'c> VariantAccess<'de> for &mut TtlvDeserializer<'de, 'c> {
+    type Error = Error;
+
+    fn unit_variant(self) -> Result<()> {
+        Ok(())
+    }
+
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value>
+    where
+        T: serde::de::DeserializeSeed<'de>,
+    {
+        seed.deserialize(self)
+    }
+
+    fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "newtype_variant_seed",
+            "Deserializing TTLV to the Rust enum tuple variant type is not supported.",
+        ))
+    }
+
+    fn struct_variant<V>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.error(
+            "newtype_variant_seed",
+            "Deserializing TTLV to the Rust enum struct variant type is not supported.",
+        ))
     }
 }
 
@@ -768,16 +986,15 @@ mod test {
     // on the struct definitions, the Deserialize structure needs the #[serde(rename)] on the fields that use those
     // types instead.
     #[derive(Debug, Deserialize)]
+    #[serde(rename = "0x42007B")]
     struct ResponseMessage {
-        #[serde(rename = "0x42007A")]
         header: ResponseHeader,
-        #[serde(rename = "0x42000F")]
         items: Vec<BatchItem>,
     }
 
     #[derive(Debug, Deserialize)]
+    #[serde(rename = "0x42007A")]
     struct ResponseHeader {
-        #[serde(rename = "0x420069")]
         ver: ProtocolVersion,
         #[serde(rename = "0x420092")]
         timestamp: i64,
@@ -786,6 +1003,7 @@ mod test {
     }
 
     #[derive(Debug, Deserialize)]
+    #[serde(rename = "0x420069")]
     struct ProtocolVersion {
         #[serde(rename = "0x42006A")]
         major: i32,
@@ -794,22 +1012,22 @@ mod test {
     }
 
     #[derive(Debug, Deserialize)]
+    #[serde(rename = "0x42000F")]
     struct BatchItem {
-        #[serde(rename = "0x42005C")]
         operation: Operation,
-        #[serde(rename = "0x42007F")]
         status: ResultStatus,
-        #[serde(rename = "0x42007C")]
         payload: ResponsePayload,
     }
 
     #[derive(Debug, Deserialize, PartialEq)]
+    #[serde(rename = "0x42005C")]
     enum Operation {
         #[serde(rename = "0x00000001")]
         Create,
     }
 
     #[derive(Debug, Deserialize, PartialEq)]
+    #[serde(rename = "0x42007F")]
     enum ResultStatus {
         #[serde(rename = "0x00000000")]
         Success,
@@ -823,6 +1041,7 @@ mod test {
     }
 
     #[derive(Debug, Deserialize)]
+    #[serde(rename = "0x42007C")]
     struct CreateResponsePayload {
         #[serde(rename = "0x420057")]
         object_type: ObjectType,
