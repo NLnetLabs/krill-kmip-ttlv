@@ -45,6 +45,8 @@ pub struct Serializer {
     bookmarks: Vec<usize>,
 
     in_tag_header: bool,
+
+    in_enum: bool,
 }
 
 impl Serializer {
@@ -68,6 +70,7 @@ impl Serializer {
         }
         self.dst.write_all(&<[u8; 3]>::from(item_tag))?;
         self.in_tag_header = true;
+        self.in_enum = false;
         Ok(())
     }
 
@@ -205,7 +208,11 @@ impl serde::ser::Serializer for &mut Serializer {
     /// }
     /// ```
     fn serialize_unit_variant(self, name: &'static str, _variant_index: u32, variant: &'static str) -> Result<()> {
-        self.write_tag(ItemTag::from_str(name)?)?;
+        if !self.in_enum {
+            // Quick hack to permit an enum to be used as a child of the AttributeValue tag with the value being written
+            // serialized TTLV Enumeration but without the value having its own tag and type.
+            self.write_tag(ItemTag::from_str(name)?)?;
+        }
         let variant = u32::from_str_radix(variant.trim_start_matches("0x"), 16)?;
         TtlvEnumeration(variant).write(&mut self.dst)?;
         self.in_tag_header = false;
@@ -233,7 +240,10 @@ impl serde::ser::Serializer for &mut Serializer {
     where
         T: Serialize,
     {
-        self.write_tag(ItemTag::from_str(name)?)?;
+        if let Ok(valid_tag) = ItemTag::from_str(name) {
+            self.write_tag(valid_tag)?;
+        }
+        self.in_enum = true;
         value.serialize(self)?;
         Ok(())
     }
@@ -458,18 +468,46 @@ mod test {
         #[derive(Serialize)]
         #[serde(rename = "0x42000B")]
         enum AttributeValue {
+            CryptographicAlgorithm(CryptographicAlgorithm),
             Integer(i32),
-            Enumeration(u32),
+        }
+
+        impl Attribute {
+            #[allow(non_snake_case)]
+            fn CryptographicAlgorithm(value: CryptographicAlgorithm) -> Self {
+                Attribute(
+                    AttributeName("Cryptographic Algorithm"),
+                    AttributeValue::CryptographicAlgorithm(value),
+                )
+            }
+
+            #[allow(non_snake_case)]
+            fn CryptographicLength(value: i32) -> Self {
+                Attribute(
+                    AttributeName("Cryptographic Length"),
+                    AttributeValue::Integer(value)
+                )
+            }
+
+            #[allow(non_snake_case)]
+            fn CryptographicUsageMask(value: i32) -> Self {
+                Attribute(
+                    AttributeName("Cryptographic Usage Mask"),
+                    AttributeValue::Integer(value)
+                )
+            }
         }
 
         #[derive(Serialize)]
+        #[serde(rename = "420028")]
         enum CryptographicAlgorithm {
-            AES = 0x00000003,
+            #[serde(rename = "0x00000003")]
+            AES,
         }
 
         // Attempt to generate correct binary TTLV for KMIP specification v1.0 use case 3.1.1 Create / Destroy as the\
         // use case definition includes the input structure and the corresponding expected binary output.
-        // See: http://docs.oasis-open.org/kmip/usecases/v1.0/cs01/kmip-usecases-1.0-cs-01.pdf
+        // See: http://docs.oasis-open.org/kmip/usecases/v1.0/cs01/kmip-usecases-1.0-cs-01.html
 
         let use_case_input = RequestMessage(
             RequestHeader(
@@ -481,15 +519,9 @@ mod test {
                 RequestPayload(
                     ObjectType::SymmetricKey,
                     TemplateAttribute(vec![
-                        Attribute(
-                            AttributeName("Cryptographic Algorithm"),
-                            AttributeValue::Enumeration(CryptographicAlgorithm::AES as u32),
-                        ),
-                        Attribute(AttributeName("Cryptographic Length"), AttributeValue::Integer(128)),
-                        Attribute(
-                            AttributeName("Cryptographic Usage Mask"),
-                            AttributeValue::Integer(0x0000_000C),
-                        ),
+                        Attribute::CryptographicAlgorithm(CryptographicAlgorithm::AES),
+                        Attribute::CryptographicLength(128),
+                        Attribute::CryptographicUsageMask(0x0000_000C),
                     ]),
                 ),
             )],

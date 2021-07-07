@@ -56,15 +56,9 @@ let req = RequestMessage(
         RequestPayload::Create(
             ObjectType::SymmetricKey,
             TemplateAttribute(vec![
-                Attribute(
-                    AttributeName("Cryptographic Algorithm"),
-                    AttributeValue::Enumeration(CryptographicAlgorithm::AES as u32),
-                ),
-                Attribute(AttributeName("Cryptographic Length"), AttributeValue::Integer(128)),
-                Attribute(
-                    AttributeName("Cryptographic Usage Mask"),
-                    AttributeValue::Integer(0x0000_000C),
-                ),
+                Attribute::CryptographicAlgorithm(CryptographicAlgorithm::AES),
+                Attribute::CryptographicLength(128),
+                Attribute::CryptographicUsageMask(0x0000_000C), // This can be made more user friendly
             ]),
         ),
     )],
