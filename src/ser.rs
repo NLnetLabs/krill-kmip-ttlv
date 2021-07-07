@@ -180,6 +180,30 @@ impl serde::ser::Serializer for &mut Serializer {
         Ok(())
     }
 
+    /// Serialize a unit enum variant.
+    ///
+    /// We can't serialize based on the discriminant as Serde doesn't make that available to us. We also can't serialize
+    /// based on the variant index as most KMIP enumerations start at one rather than zero, and we can't work based on
+    /// that assumption either as some start at other numbers entirely (e.g. the KMIP spec 1.0 section 9.1.3.2.19 Link
+    /// Type Enumeration defines an enumeration that starts at 0x00000101). And we can't serialize based on the variant
+    /// name if that name is a string, e.g. "Query", as TTLV requires an enumeration to be serialized as a 32-bit
+    /// unsigned integer and we only have a string which might not be (correctly) convertable to an integer. And we also
+    /// can't serialize using serde_repr which would give us access to the discriminant, but would invoke our
+    /// `fn serialize_u32()` function with ONLY the discriminant, we wouldn't be able to write out the TTLV tag as we
+    /// wouldn't know what it was.
+    ///
+    /// Therefore we require the tag AND the discriminant to be communicated to us. The tag should be passed via the
+    /// enum name and the discriminant via the variant name. When using serde-derive both should be overridden using the
+    /// `#[serde(rename = "0xAABBCC")]` syntax, e.g.
+    ///
+    /// ```ignore
+    /// #[derive(Serialize)]
+    /// #[serde(rename = "0x42005C")]
+    /// enum MyEnum {
+    ///     #[serde(rename = "0x000000001")] // The discriminant has to be defined here.
+    ///     SomeVariant // = 1,                 Any discriminant value assigned here will be ignored
+    /// }
+    /// ```
     fn serialize_unit_variant(self, name: &'static str, _variant_index: u32, variant: &'static str) -> Result<()> {
         self.write_tag(ItemTag::from_str(name)?)?;
         let variant = u32::from_str_radix(variant.trim_start_matches("0x"), 16)?;
