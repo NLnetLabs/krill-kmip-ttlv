@@ -125,6 +125,7 @@ impl serde::ser::Serializer for &mut Serializer {
     // =======================================================
     type SerializeSeq = Self;
     type SerializeTupleStruct = Self;
+    type SerializeTupleVariant = Self;
 
     /// This fn is called at the start of serializing a Rust tuple struct, e.g. struct SomeStruct(type, type, type). The
     /// struct contents will be written out as a tree of TTLV structures (TTLV type 0x01) with each field in the Rust
@@ -230,6 +231,19 @@ impl serde::ser::Serializer for &mut Serializer {
         Ok(())
     }
 
+    /// Serialize a struct SomeStruct(a, b, c) to the TTLV write buffer as if it were the naked type without the
+    /// enclosing SomeStruct "tuple" wrapper.
+    fn serialize_tuple_variant(
+        self,
+        name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeTupleVariant> {
+        self.write_tag(ItemTag::from_str(name)?)?;
+        Ok(self)
+    }
+
     fn serialize_newtype_variant<T: ?Sized>(
         self,
         name: &'static str,
@@ -240,9 +254,7 @@ impl serde::ser::Serializer for &mut Serializer {
     where
         T: Serialize,
     {
-        if let Ok(valid_tag) = ItemTag::from_str(name) {
-            self.write_tag(valid_tag)?;
-        }
+        self.write_tag(ItemTag::from_str(name)?)?;
         self.in_enum = true;
         value.serialize(self)?;
         Ok(())
@@ -270,7 +282,6 @@ impl serde::ser::Serializer for &mut Serializer {
     type SerializeStruct = Impossible<(), Self::Error>;
     type SerializeStructVariant = Impossible<(), Self::Error>;
     type SerializeTuple = Impossible<(), Self::Error>;
-    type SerializeTupleVariant = Impossible<(), Self::Error>;
 
     fn serialize_u8(self, _v: u8) -> Result<()> {
         Err(Self::Error::UnsupportedType("u8"))
@@ -318,16 +329,6 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple> {
         Err(Self::Error::UnsupportedType("tuple"))
-    }
-
-    fn serialize_tuple_variant(
-        self,
-        _name: &'static str,
-        _variant_index: u32,
-        _variant: &'static str,
-        _len: usize,
-    ) -> Result<Self::SerializeTupleVariant> {
-        Err(Self::Error::UnsupportedType("tuple variant"))
     }
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap> {
@@ -386,6 +387,32 @@ impl ser::SerializeTupleStruct for &mut Serializer {
 
     fn end(self) -> Result<()> {
         // This fn is called at the end of serializing a Struct.
+        // TODO: go back to the length byte pos in the vec and write in our distance from that point
+        // Either we need to receive back from ... from where? we get no values passed to us, so instead we need to
+        // store the position to go back to in the vec, but we'll need to do that for each level of struct nesting, push
+        // them on and pop them off.
+        self.rewrite_len()?;
+        Ok(())
+    }
+}
+
+// ============================================
+// SERIALIZATION OF RUST TUPLE VARIANTS TO TTLV
+// ============================================
+impl ser::SerializeTupleVariant for &mut Serializer {
+    type Ok = ();
+    type Error = Error;
+
+    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<()>
+    where
+        T: Serialize,
+    {
+        value.serialize(&mut **self)?;
+        Ok(())
+    }
+
+    fn end(self) -> Result<Self::Ok> {
+        // This fn is called at the end of serializing a tuple variant.
         // TODO: go back to the length byte pos in the vec and write in our distance from that point
         // Either we need to receive back from ... from where? we get no values passed to us, so instead we need to
         // store the position to go back to in the vec, but we'll need to do that for each level of struct nesting, push
@@ -483,17 +510,14 @@ mod test {
 
             #[allow(non_snake_case)]
             fn CryptographicLength(value: i32) -> Self {
-                Attribute(
-                    AttributeName("Cryptographic Length"),
-                    AttributeValue::Integer(value)
-                )
+                Attribute(AttributeName("Cryptographic Length"), AttributeValue::Integer(value))
             }
 
             #[allow(non_snake_case)]
             fn CryptographicUsageMask(value: i32) -> Self {
                 Attribute(
                     AttributeName("Cryptographic Usage Mask"),
-                    AttributeValue::Integer(value)
+                    AttributeValue::Integer(value),
                 )
             }
         }
