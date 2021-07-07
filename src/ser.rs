@@ -263,6 +263,12 @@ impl serde::ser::Serializer for &mut Serializer {
     /// Dispatch serialization of a Rust sequence type such as Vec to the implementation of SerializeSeq that we
     /// provide.
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
+        // When we have an enum containing an enum in Rust (e.g. a KMIP attribute with an Enumeration value) that is
+        // expressed in TTLV as a single enum tag and for that case we earlier set self.in_enum = true. However, if the
+        // enum instead contains (e.g. a vec) then it represents the dynamic payload scenario where one of several
+        // structures are possible and are used via a Rust enum but in that case we want to serialize a TTLV Structure
+        // so disable the special enum in enum behaviour.
+        self.in_enum = false;
         Ok(self)
     }
 
