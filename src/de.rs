@@ -971,6 +971,9 @@ impl<'de: 'c, 'c> VariantAccess<'de> for &mut TtlvDeserializer<'de, 'c> {
 
 #[cfg(test)]
 mod test {
+    #[allow(unused_imports)]
+    use pretty_assertions::{assert_eq, assert_ne};
+
     use crate::de::from_slice;
 
     use serde_derive::Deserialize;

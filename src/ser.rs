@@ -439,6 +439,9 @@ impl ser::SerializeTupleVariant for &mut Serializer {
 
 #[cfg(test)]
 mod test {
+    #[allow(unused_imports)]
+    use pretty_assertions::{assert_eq, assert_ne};
+
     use serde_derive::Serialize;
 
     use crate::ser::to_vec;

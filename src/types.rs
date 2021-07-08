@@ -395,6 +395,9 @@ pub type TtlvInterval = TtlvEnumeration;
 
 #[cfg(test)]
 mod test {
+    #[allow(unused_imports)]
+    use pretty_assertions::{assert_eq, assert_ne};
+
     use std::str::FromStr;
 
     use crate::types::{ItemTag, ItemType, SerializableTtlvType};
