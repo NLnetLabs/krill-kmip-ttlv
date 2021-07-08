@@ -372,6 +372,15 @@ impl ser::SerializeSeq for &mut Serializer {
     }
 
     fn end(self) -> Result<()> {
+        if self.in_tag_header {
+            // We emited a tag then started an empty sequence and thus never wrote a type or length to the byte stream.
+            // If another tag were to be written this would be caught by write_tag(), but if this sequence is the last
+            // TTLV item to be written this will not be caught in time to correctly calculate the length of the parent
+            // structure. As a sequence can only be contained by a structure so assume this should be an empty
+            // structure.
+            self.write_type(ItemType::Structure)?;
+            self.write_zero_len()?;
+        }
         Ok(())
     }
 }
