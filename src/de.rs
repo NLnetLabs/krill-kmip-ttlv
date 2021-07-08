@@ -351,6 +351,14 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         Ok(r)
     }
 
+    /// Deserialize the bytes at the current cursor position to a Rust struct with a single field.
+    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_newtype_struct(self) // jumps to to the appropriate deserializer fn such as deserialize_string()
+    }
+
     /// Deserialize the bytes at the current cursor position to a Rust vector.
     ///
     /// The use of a Rust vector by the caller is assumed to signify that the next items in the TTLV byte stream will
@@ -846,16 +854,6 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         Err(self.error(
             "deserialize_tuple",
             "Deserializing TTLV to Serde as a tuple is not supported.",
-        ))
-    }
-
-    fn deserialize_newtype_struct<V>(self, _name: &'static str, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_newtype_struct",
-            "Deserializing TTLV to Serde as a newtype struct is not supported.",
         ))
     }
 
