@@ -61,7 +61,11 @@ trait ContextualErrorSupport {
 
         let mut ctx = String::new();
         if start < pos {
-            ctx.push_str(&format!("..{}", &hex::encode_upper(self.buf()[start..pos].to_vec())));
+            let range = start..pos;
+            if range.len() > Self::WINDOW_SIZE {
+                ctx.push_str("..")
+            }
+            ctx.push_str(&hex::encode_upper(self.buf()[range].to_vec()));
         }
         if pos < end {
             ctx.push_str(&format!(
@@ -70,7 +74,12 @@ trait ContextualErrorSupport {
             ));
         }
         if (pos + 1) < end {
-            ctx.push_str(&format!("{}..", &hex::encode_upper(self.buf()[pos + 1..end].to_vec())));
+            let range = (pos + 1)..end;
+            let add_ellipsis = range.len() > Self::WINDOW_SIZE;
+            ctx.push_str(&hex::encode_upper(self.buf()[range].to_vec()));
+            if add_ellipsis {
+                ctx.push_str("..")
+            }
         }
         ctx
     }
@@ -219,11 +228,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         Ok(true)
     }
 
-    fn prepare_to_descend(
-        &mut self,
-        caller_fn_name: &'static str,
-        name: &'static str,
-    ) -> Result<(u64, ItemTag, ItemType, u64)> {
+    fn get_start_tag_type(&mut self) -> Result<(u64, ItemTag, ItemType)> {
         let (group_start, group_tag, group_type) = if self.pos() == 0 {
             // When invoked by Serde via from_slice() there is no prior call to next_key_seed() that reads the tag and
             // type as we are not visiting a map at that point. Thus we need to read the opening tag and type here.
@@ -236,6 +241,18 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             // read by next_key_seed() so we don't need to read them here.
             (self.src.position() - 4, self.item_tag.unwrap(), self.item_type.unwrap())
         };
+        Ok((group_start, group_tag, group_type))
+    }
+
+    fn prepare_to_descend(
+        &mut self,
+        caller_fn_name: &'static str,
+        name: &'static str,
+    ) -> Result<(u64, ItemTag, ItemType, u64)> {
+        let (group_start, group_tag, group_type) = self
+            .get_start_tag_type()
+            .map_err(|err| self.error(caller_fn_name, &err.to_string()))?;
+
         let group_len = self.read_length()?;
         let group_end = (self.pos() + (group_len as usize)) as u64;
 
