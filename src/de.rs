@@ -633,7 +633,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
                 visitor.visit_enum(&mut *self) // jumps to impl EnumAccess (ending at unit_variant()) below
             }
             Some(ItemType::Structure) => {
-                // 2: Read a TTLV structure from the byte stream. This enables handling of cases such as 
+                // 2: Read a TTLV structure from the byte stream. This enables handling of cases such as
                 //    `BatchItem.operation` enum field that indicates the enum variant and thus structure type of
                 //    `BatchItem.payload` that this TTLV structure should be deserialized into.
 
