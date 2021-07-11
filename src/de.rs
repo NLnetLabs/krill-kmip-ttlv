@@ -121,7 +121,7 @@ struct TtlvDeserializer<'de: 'c, 'c> {
     item_identifier: Option<String>,
 
     // lookup maps
-    unit_enum_store: Rc<RefCell<HashMap<ItemTag, String>>>,
+    tag_value_store: Rc<RefCell<HashMap<ItemTag, String>>>,
 }
 
 impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
@@ -139,7 +139,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             item_type: None,
             item_unexpected: false,
             item_identifier: None,
-            unit_enum_store: Rc::new(RefCell::new(HashMap::new())),
+            tag_value_store: Rc::new(RefCell::new(HashMap::new())),
         }
     }
 
@@ -169,7 +169,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             item_type: None,
             item_unexpected: false,
             item_identifier: None,
-            unit_enum_store,
+            tag_value_store: unit_enum_store,
         }
     }
 
@@ -287,11 +287,11 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     }
 
     fn is_variant_applicable(&self, variant: &'static str) -> Result<bool> {
-        if let Some((wanted_enum_tag, wanted_enum_val)) = variant.strip_prefix("if ").unwrap_or("").split_once("==") {
-            // Have we earlier seen a TTLV enum with tag 'enum_tag' and if so was its value 'enum_val'? If
-            // so then this is the variant name to announce to Serde that we are deserializing into.
-            if let Some(seen_enum_val) = self.unit_enum_store.borrow().get(&ItemTag::from_str(wanted_enum_tag)?) {
-                if *seen_enum_val == wanted_enum_val {
+        if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").unwrap_or("").split_once("==") {
+            // Have we earlier seen a TTLV tag 'wanted_tag' and if so was its value 'wanted_val'? If so then this is
+            // the variant name to announce to Serde that we are deserializing into.
+            if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
+                if *seen_enum_val == wanted_val {
                     return Ok(true);
                 }
             }
@@ -367,7 +367,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
             group_type,
             group_end,
             fields,
-            self.unit_enum_store.clone(),
+            self.tag_value_store.clone(),
         );
 
         let r = visitor.visit_map(descendent_parser)?; // jumps to impl MapAccess below
@@ -433,7 +433,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
             seq_type,
             seq_end,
             &[],
-            self.unit_enum_store.clone(),
+            self.tag_value_store.clone(),
         );
 
         let r = visitor.visit_seq(descendent_parser)?; // jumps to impl SeqAccess below
@@ -563,9 +563,12 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     /// defined elsewhere.
     ///
     /// The special name syntax `if A==B` is used here to select the correct variant by matching against the value of
-    /// another enum, "Operation", seen earlier in the TTLV byte stream. A TTLV byte sequence of the form
+    /// another tag, "Operation" in this case, seen earlier in the TTLV byte stream. A TTLV byte sequence of the form
     /// `42000F01LLLLLLLL42005C0500000004000000020000000042007C01LLLLLLLLV...` would be deserialized as operation code
     /// 0x00000002 indicating that the payload is of type `CreateKeyPairResponsePayload`.
+    ///
+    /// The if syntax currently only supports matching against the value of earlier seen enum or string TTLV items that
+    /// are looked up by their tag.
     fn deserialize_enum<V>(self, name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -579,41 +582,60 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         //   1. Deserialize the type of TTLV item that we find at this point in the byte stream.
         //
         //   2. Announce to serde either the TTLV tag as the variant name, or if the enum name is in the special form
-        //      "if A==B" attempt to see if a previously read enum value tells us which variant to announce at this
-        //      point.
+        //      "if A==B" attempt to see if the value of previously seen tag A is B and if so we then announce the
+        //      "if A==B" variant name as the chosen variant.
         //
-        // So:
+        // When matching against previously seen tag values the match we find is used to tell Serde which enum variant
+        // to deserialie into. This is the only case where we support an enum within an enum in the Rust code structure,
+        // as TTLV doesn't support such nesting of enum values, that is we match against the name (or rename) of the
+        // variant in an outer enum but the TTLV enum value that we read is used to select the variant of an inner enum.
         //
+        // The concrete KMIP use case for such nested enums is when the response includes an Attribute Value whose tag
+        // cannot tell us which Rust enum variant to deserialize into as it is always the same (0x42000B) so instead we
+        // want to use the Attribute Name tag (0x42000A) string value seen earlier to select the Rust variant to
+        // deserialize into, but that variant is itself an enum (e.g. AttributeValue::State(State)) and the actual TTLV
+        // enum value read selects the variant of this "inner" State enum that will be deserialized into (e.g.
+        // State::PreActive).
+
+        self.item_identifier = None;
+
+        // Check each enum variant name to see if it is of the form "if enum_tag==enum_val" and if so extract
+        // enum_tag and enum_value:
+        for v in variants {
+            if self.is_variant_applicable(v)? {
+                self.item_identifier = Some(v.to_string());
+                break;
+            }
+        }
+
         // 1: Deserialize according to the TTLV item type:
         match self.item_type {
             Some(ItemType::Enumeration) => {
                 // 2: Read a TTLV enumeration from the byte stream and announce the read value as the enum variant name.
-                let enum_val = TtlvEnumeration::read(self.src)?;
-                let enum_hex = format!("0x{}", hex::encode_upper(enum_val.to_be_bytes()));
+                //    If we are selecting an enum variant based on a special "if" string then item_identifier will be
+                //    Some(xxx) where xxx will NOT match the TTLV value that is waiting to be read, instead that will
+                //    match an inner enum variant so we read the TTLV value when we visit this function again deeper in
+                //    the call hierarchy. This enables handling of cases such as `AttributeName` string field that
+                //    indicates the enum variant represented by the `AttributeValue`.
+                if self.item_identifier.is_none() {
+                    let enum_val = TtlvEnumeration::read(self.src)?;
+                    let enum_hex = format!("0x{}", hex::encode_upper(enum_val.to_be_bytes()));
 
-                // Insert or replace the last value seen for this enum in our enum value lookup table
-                {
-                    let mut map: RefMut<_> = self.unit_enum_store.borrow_mut();
-                    map.insert(self.item_tag.unwrap(), enum_hex.clone());
+                    // Insert or replace the last value seen for this enum in our enum value lookup table
+                    {
+                        let mut map: RefMut<_> = self.tag_value_store.borrow_mut();
+                        map.insert(self.item_tag.unwrap(), enum_hex.clone());
+                    }
+
+                    self.item_identifier = Some(enum_hex);
                 }
 
-                self.item_identifier = Some(enum_hex);
                 visitor.visit_enum(&mut *self) // jumps to impl EnumAccess (ending at unit_variant()) below
             }
             Some(ItemType::Structure) => {
-                // 2: Lookup the variant to announce and if found read a TTLV structure from the byte stream.
-                //    This enables handling of cases such as a BatchItem.operation enum field that indicates the enum
-                //    variant and thus structure type of BatchItem.payload that this TTLV structure should be
-                //    deserialized into.
-
-                // Check each enum variant name to see if it is of the form "if enum_tag==enum_val" and if so extract
-                // enum_tag and enum_value:
-                for v in variants {
-                    if self.is_variant_applicable(v)? {
-                        self.item_identifier = Some(v.to_string());
-                        break;
-                    }
-                }
+                // 2: Read a TTLV structure from the byte stream. This enables handling of cases such as 
+                //    `BatchItem.operation` enum field that indicates the enum variant and thus structure type of
+                //    `BatchItem.payload` that this TTLV structure should be deserialized into.
 
                 // If we couldn't work out the correct variant name to announce to serde, announce the enum tag as the
                 // variant name and let Serde handle it in case the caller has used `#[serde(other)]` to mark one
@@ -643,7 +665,19 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         V: Visitor<'de>,
     {
         if let Some(identifier) = &self.item_identifier {
-            visitor.visit_str(identifier)
+            visitor.visit_str(identifier).map_err(|err: Self::Error| {
+                self.error(
+                    "deserialize_identifier",
+                    &format!(
+                        concat!(
+                            "Serde was not expecting identifier '{}': {}. Tip: Ensure that the Rust type being ",
+                            "deserialized into either has a member field with name '{}' or add attribute ",
+                            r#"`#[serde(rename = "{}")]` to the field"#
+                        ),
+                        identifier, err, identifier, identifier
+                    ),
+                )
+            })
         } else {
             Err(self.error("deserialize_identifier", "No identifier available!"))
         }
@@ -694,7 +728,15 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         V: Visitor<'de>,
     {
         let v = TtlvTextString::read(&mut self.src)?;
-        visitor.visit_string(v.0)
+        let str = v.0;
+
+        // Insert or replace the last value seen for this tag in our value lookup table
+        {
+            let mut map: RefMut<_> = self.tag_value_store.borrow_mut();
+            map.insert(self.item_tag.unwrap(), str.clone());
+        }
+
+        visitor.visit_string(str)
     }
 
     // dummy implementations of unsupported types so that we can give back a more useful error message than when using
