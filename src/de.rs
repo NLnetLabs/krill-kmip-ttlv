@@ -72,6 +72,8 @@ trait ContextualErrorSupport {
                 " >>{}<< ",
                 &hex::encode_upper(self.buf()[pos..pos + 1].to_vec())
             ));
+        } else {
+            ctx.push_str(" >>{}<<");
         }
         if (pos + 1) < end {
             let range = (pos + 1)..end;
@@ -84,10 +86,18 @@ trait ContextualErrorSupport {
         ctx
     }
     fn unknown_error(&self, fn_name: &str) -> Error {
-        Error::DeserializeError(self.ctx(), self.pos(), format!("{}: internal error", fn_name))
+        Error::DeserializeError {
+            ctx: self.ctx(),
+            pos: self.pos(),
+            msg: format!("{}: internal error", fn_name),
+        }
     }
     fn error(&self, fn_name: &str, msg: &str) -> Error {
-        Error::DeserializeError(self.ctx(), self.pos(), format!("{}: internal error: {}", fn_name, msg))
+        Error::DeserializeError {
+            ctx: self.ctx(),
+            pos: self.pos(),
+            msg: format!("{}: internal error: {}", fn_name, msg),
+        }
     }
 }
 

@@ -10,7 +10,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[non_exhaustive]
 pub enum Error {
     // TODO: use named struct fields
-    DeserializeError(String, usize, String),
+    DeserializeError { ctx: String, pos: usize, msg: String },
     IoError(std::io::Error),
     InsufficientBytes,
     InvalidTag(String),
@@ -40,7 +40,7 @@ impl From<ParseIntError> for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::DeserializeError(ctx, pos, msg) => f.write_fmt(format_args!(
+            Error::DeserializeError { ctx, pos, msg } => f.write_fmt(format_args!(
                 "Deserialization error: {} at position {} with context {:?}",
                 ctx, pos, msg
             )),
