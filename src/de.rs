@@ -16,7 +16,7 @@ use serde::{
 use crate::{
     error::Error,
     error::Result,
-    types::{ItemTag, ItemType},
+    types::{ItemTag, ItemType, TtlvByteString},
     types::{
         SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvTextString,
     },
@@ -646,6 +646,11 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
 
                 visitor.visit_enum(&mut *self) // jumps to impl EnumAccess below
             }
+            Some(ItemType::ByteString) => {
+                // Handle the KeyMaterial case where the KeyMaterial is an enum that can be either bytes or a structure.
+
+                visitor.visit_enum(&mut *self) // jumps to impl EnumAccess below
+            }
             Some(item_type) => Err(self.error(
                 "deserialize_enum",
                 &format!(
@@ -737,6 +742,15 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         }
 
         visitor.visit_string(str)
+    }
+
+    /// Use #[serde(with = "serde_bytes")] to direct Serde to this deserializer function for type Vec<u8>.
+    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let v = TtlvByteString::read(&mut self.src)?;
+        visitor.visit_byte_buf(v.0)
     }
 
     // dummy implementations of unsupported types so that we can give back a more useful error message than when using
@@ -859,16 +873,6 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         Err(self.error(
             "deserialize_bytes",
             "Deserializing TTLV to Serde as bytes is not supported.",
-        ))
-    }
-
-    fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_byte_buf",
-            "Deserializing TTLV to Serde as a byte buf is not supported.",
         ))
     }
 

@@ -85,7 +85,7 @@ pub enum ItemType {
     Enumeration = 0x05,
     Boolean = 0x06,
     TextString = 0x07,
-    // ByteString = 0x08,
+    ByteString = 0x08,
     DateTime = 0x09,
     // Interval = 0x0A,
 }
@@ -102,7 +102,7 @@ impl TryFrom<u8> for ItemType {
             0x05 => Ok(ItemType::Enumeration),
             0x06 => Ok(ItemType::Boolean),
             0x07 => Ok(ItemType::TextString),
-            // 0x08 => Ok(ItemType::ByteString),
+            0x08 => Ok(ItemType::ByteString),
             0x09 => Ok(ItemType::DateTime),
             // 0x0A => Ok(ItemType::Interval),
             _ => Err(Error::Other(format!("No known ItemType has u8 value {}", value))),
@@ -218,7 +218,7 @@ pub trait SerializableTtlvType: Sized + Deref {
 // E.g. simple_primitive!(MyType, ItemType::Integer, i32, 4) would define a new Rust struct called MyType which wraps an
 // i32 value and implements the SerializableTtlvType trait to define how to read/write from/to a sequence of 4
 // big-endian encoded bytes prefixed by a TTLV item type byte of value ItemType::Integer.
-macro_rules! define_serializable_ttlv_type {
+macro_rules! define_fixed_value_length_serializable_ttlv_type {
     ($NEW_TYPE_NAME:ident, $TTLV_ITEM_TYPE:expr, $RUST_TYPE:ty, $TTLV_VALUE_LEN:literal) => {
         #[derive(Clone, Debug)]
         pub struct $NEW_TYPE_NAME(pub $RUST_TYPE);
@@ -264,13 +264,13 @@ macro_rules! define_serializable_ttlv_type {
 // ==================================
 // "Integers are encoded as four-byte long (32 bit) binary signed numbers in 2's complement notation,
 //  transmitted big-endian."
-define_serializable_ttlv_type!(TtlvInteger, ItemType::Integer, i32, 4);
+define_fixed_value_length_serializable_ttlv_type!(TtlvInteger, ItemType::Integer, i32, 4);
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value
 // ==================================
 // "Long Integers are encoded as eight-byte long (64 bit) binary signed numbers in 2's complement
 //  notation, transmitted big-endian."
-define_serializable_ttlv_type!(TtlvLongInteger, ItemType::LongInteger, i64, 8);
+define_fixed_value_length_serializable_ttlv_type!(TtlvLongInteger, ItemType::LongInteger, i64, 8);
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value
 // ==================================
@@ -287,13 +287,15 @@ define_serializable_ttlv_type!(TtlvLongInteger, ItemType::LongInteger, i64, 8);
 // "Enumerations are encoded as four-byte long (32 bit) binary unsigned numbers transmitted big-
 //  endian. Extensions, which are permitted, but are not defined in this specification, contain the
 //  value 8 hex in the first nibble of the first byte."
-define_serializable_ttlv_type!(TtlvEnumeration, ItemType::Enumeration, u32, 4);
+define_fixed_value_length_serializable_ttlv_type!(TtlvEnumeration, ItemType::Enumeration, u32, 4);
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value
 // ==================================
 // "Booleans are encoded as an eight-byte value that SHALL either contain the hex value
 //  0000000000000000, indicating the Boolean value False, or the hex value 0000000000000001,
 //  transmitted big-endian, indicating the Boolean value True."
+// Boolean cannot be implemented using the define_fixed_value_length_serializable_ttlv_type! macro because it has
+// special value verification rules.
 #[derive(Clone, Debug)]
 pub struct TtlvBoolean(pub bool);
 impl TtlvBoolean {
@@ -345,6 +347,8 @@ impl SerializableTtlvType for TtlvBoolean {
 // ==================================
 // "Text Strings are sequences of bytes that encode character values according to the UTF-8
 //  encoding standard. There SHALL NOT be null-termination at the end of such strings."
+// TextString cannot be implemented using the define_fixed_value_length_serializable_ttlv_type! macro because it has a
+// dynamic length.
 #[derive(Clone, Debug)]
 pub struct TtlvTextString(pub String);
 impl Deref for TtlvTextString {
@@ -371,6 +375,40 @@ impl SerializableTtlvType for TtlvTextString {
 
     fn write_length_and_value<T: Write>(&self, dst: &mut T) -> Result<u32> {
         let v = self.0.as_bytes();
+        let v_len = v.len() as u32;
+        dst.write_all(&v_len.to_be_bytes())?; // Write L_ength
+        dst.write_all(&v)?; // Write V_alue
+        Ok(v_len)
+    }
+}
+
+// KMIP v1.0 spec: 9.1.1.4 Item Value
+// ==================================
+// "Byte Strings are sequences of bytes containing individual unspecified eight-bit binary values, and are interpreted
+//  in the same sequence order."
+// ByteString cannot be implemented using the define_fixed_value_length_serializable_ttlv_type! macro because it has a
+// dynamic length.
+#[derive(Clone, Debug)]
+pub struct TtlvByteString(pub Vec<u8>);
+impl Deref for TtlvByteString {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl SerializableTtlvType for TtlvByteString {
+    const TTLV_TYPE: ItemType = ItemType::ByteString;
+
+    fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
+        // Read the UTF-8 bytes, without knowing if they are valid UTF-8
+        let mut dst = vec![0; value_len as usize];
+        src.read_exact(&mut dst)?;
+        Ok(TtlvByteString(dst))
+    }
+
+    fn write_length_and_value<T: Write>(&self, dst: &mut T) -> Result<u32> {
+        let v = self.0.as_slice();
         let v_len = v.len() as u32;
         dst.write_all(&v_len.to_be_bytes())?; // Write L_ength
         dst.write_all(&v)?; // Write V_alue
@@ -484,15 +522,12 @@ mod test {
         assert_eq!(ItemType::from_str("0x05").unwrap(), ItemType::try_from(0x05).unwrap());
         assert_eq!(ItemType::from_str("0x06").unwrap(), ItemType::try_from(0x06).unwrap());
         assert_eq!(ItemType::from_str("0x07").unwrap(), ItemType::try_from(0x07).unwrap());
+        assert_eq!(ItemType::from_str("0x08").unwrap(), ItemType::try_from(0x08).unwrap());
         assert_eq!(ItemType::from_str("0x09").unwrap(), ItemType::try_from(0x09).unwrap());
 
         // Big Integer is not yet implemented
         assert!(ItemType::from_str("0x04").is_err());
         // assert_eq!(ItemType::from_str("0x04").unwrap(), ItemType::try_from(0x04).unwrap());
-
-        // Byte String is not yet implemented
-        assert!(ItemType::from_str("0x08").is_err());
-        // assert_eq!(ItemType::from_str("0x08").unwrap(), ItemType::try_from(0x08).unwrap());
 
         // Interval is not yet implemented
         assert!(ItemType::from_str("0x0A").is_err());
@@ -553,7 +588,10 @@ mod test {
 
         //   - A Byte String with the value { 0x01, 0x02, 0x03 }:
         //     42 00 20 | 08 | 00 00 00 03 | 01 02 03 00 00 00 00 00
-        // NOT IMPLEMENTED YET
+        let mut actual = Vec::new();
+        let expected = example("42 00 20 | 08 | 00 00 00 03 | 01 02 03 00 00 00 00 00");
+        TtlvByteString(vec![0x01u8, 0x02u8, 0x03u8]).write(&mut actual).unwrap();
+        assert_eq!(expected, actual);
 
         //   - A Date-Time, containing the value for Friday, March 14, 2008, 11:56:40 GMT:
         //     42 00 20 | 09 | 00 00 00 08 | 00 00 00 00 47 DA 67 F8
