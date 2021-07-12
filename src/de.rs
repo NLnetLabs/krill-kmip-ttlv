@@ -4,6 +4,7 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     io::{Cursor, Read},
+    ops::Deref,
     rc::Rc,
     str::FromStr,
 };
@@ -287,12 +288,30 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     }
 
     fn is_variant_applicable(&self, variant: &'static str) -> Result<bool> {
-        if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").unwrap_or("").split_once("==") {
+        // TODO: this is horrible code.
+        if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| v.split_once("==")) {
             // Have we earlier seen a TTLV tag 'wanted_tag' and if so was its value 'wanted_val'? If so then this is
             // the variant name to announce to Serde that we are deserializing into.
             if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
                 if *seen_enum_val == wanted_val {
                     return Ok(true);
+                }
+            }
+        } else if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| v.split_once(">=")) {
+            if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
+                if ItemTag::from_str(&seen_enum_val)?.deref() >= ItemTag::from_str(wanted_val)?.deref() {
+                    return Ok(true);
+                }
+            }
+        } else if let Some((wanted_tag, wanted_values)) = variant.strip_prefix("if ").unwrap_or("").split_once(" in ") {
+            let wanted_values = wanted_values.strip_prefix("[").and_then(|v| v.strip_suffix("]"));
+            if let Some(wanted_values) = wanted_values {
+                if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
+                    for wanted_value in wanted_values.split(",") {
+                        if *seen_enum_val == wanted_value {
+                            return Ok(true);
+                        }
+                    }
                 }
             }
         }
