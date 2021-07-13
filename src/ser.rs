@@ -10,7 +10,7 @@ use types::{TtlvBoolean, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvText
 
 use crate::{
     error::{Error, Result},
-    types::{self, ItemTag, ItemType, SerializableTtlvType},
+    types::{self, ItemTag, ItemType, SerializableTtlvType, TtlvDateTime},
 };
 
 // --- Public interface ------------------------------------------------------------------------------------------------
@@ -163,6 +163,13 @@ impl serde::ser::Serializer for &mut Serializer {
         Ok(())
     }
 
+    /// Serialize a Rust unsigned 32-bit integer value into the TTLV write buffer as TTLV type 0x05 (Enumeration).
+    fn serialize_u32(self, v: u32) -> Result<()> {
+        TtlvEnumeration(v).write(&mut self.dst)?;
+        self.in_tag_header = false;
+        Ok(())
+    }
+
     /// Serialize a Rust integer value into the TTLV write buffer as TTLV type 0x03 (Long Integer).
     fn serialize_i64(self, v: i64) -> Result<()> {
         TtlvLongInteger(v).write(&mut self.dst)?;
@@ -170,9 +177,13 @@ impl serde::ser::Serializer for &mut Serializer {
         Ok(())
     }
 
-    /// Serialize a Rust unsigned integer value into the TTLV write buffer as TTLV type 0x05 (Enumeration).
-    fn serialize_u32(self, v: u32) -> Result<()> {
-        TtlvEnumeration(v).write(&mut self.dst)?;
+    /// Serialize a Rust unsigned 64-bit integer value into the TTLV write buffer as TTLV type 0x09 (DateTime).
+    ///
+    /// TTLV DateTime values are serialized as a signed 64-bit value but as we need to ensure that we serialize the
+    /// correct TTLV type we can't handle these in serialize_i64 as that is already used for TTLV type 0x03
+    /// (Long Integer).
+    fn serialize_u64(self, v: u64) -> Result<()> {
+        TtlvDateTime(v as i64).write(&mut self.dst)?;
         self.in_tag_header = false;
         Ok(())
     }
@@ -295,10 +306,6 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_u16(self, _v: u16) -> Result<()> {
         Err(Self::Error::UnsupportedType("u16"))
-    }
-
-    fn serialize_u64(self, _v: u64) -> Result<()> {
-        Err(Self::Error::UnsupportedType("u64"))
     }
 
     fn serialize_f32(self, _v: f32) -> Result<()> {

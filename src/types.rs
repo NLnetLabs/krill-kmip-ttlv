@@ -421,8 +421,7 @@ impl SerializableTtlvType for TtlvByteString {
 // "Date-Time values are POSIX Time values encoded as Long Integers. POSIX Time, as described
 //  in IEEE Standard 1003.1 [IEEE1003-1], is the number of seconds since the Epoch (1970 Jan 1,
 //  00:00:00 UTC), not counting leap seconds."
-#[allow(dead_code)]
-pub type TtlvDateTime = TtlvLongInteger;
+define_fixed_value_length_serializable_ttlv_type!(TtlvDateTime, ItemType::DateTime, i64, 8);
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value
 // ==================================
@@ -433,10 +432,11 @@ pub type TtlvInterval = TtlvEnumeration;
 
 #[cfg(test)]
 mod test {
+    use chrono::TimeZone;
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne};
 
-    use std::str::FromStr;
+    use std::{convert::TryInto, str::FromStr};
 
     use crate::types::{ItemTag, ItemType, SerializableTtlvType};
 
@@ -596,7 +596,16 @@ mod test {
 
         //   - A Date-Time, containing the value for Friday, March 14, 2008, 11:56:40 GMT:
         //     42 00 20 | 09 | 00 00 00 08 | 00 00 00 00 47 DA 67 F8
-        // TODO
+        let mut actual = Vec::new();
+        let expected = example("42 00 20 | 09 | 00 00 00 08 | 00 00 00 00 47 DA 67 F8");
+        let dt = chrono::Utc
+            .datetime_from_str("Friday, March 14, 2008, 11:56:40 GMT", "%A, %B %d, %Y, %H:%M:%S GMT")
+            .unwrap();
+        let dt_i64 = dt.timestamp();
+        let expected_i64 = i64::from_be_bytes(hex::decode("0000000047DA67F8").unwrap().try_into().unwrap());
+        assert_eq!(expected_i64, dt_i64);
+        TtlvDateTime(dt_i64).write(&mut actual).unwrap();
+        assert_eq!(expected, actual);
 
         //   - An Interval, containing the value for 10 days:
         //     42 00 20 | 0A | 00 00 00 04 | 00 0D 2F 00 00 00 00 00
