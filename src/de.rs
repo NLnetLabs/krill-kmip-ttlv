@@ -346,6 +346,17 @@ impl<'de: 'c, 'c> ContextualErrorSupport for TtlvDeserializer<'de, 'c> {
     }
 }
 
+macro_rules! unsupported_type {
+    ($deserialize:ident, $type:ident) => {
+        fn $deserialize<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value> {
+            Err(self.error(
+                "$deserialize",
+                "Deserializing TTLV to the Rust $type type is not supported.",
+            ))
+        }
+    }
+}
+
 impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     type Error = Error;
 
@@ -781,135 +792,19 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     // dummy implementations of unsupported types so that we can give back a more useful error message than when using
     // `forward_to_deserialize_any()` as the latter doesn't make available the type currently being deserialized into.
 
-    fn deserialize_u8<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_u8",
-            "Deserializing TTLV to the Rust u8 type is not supported.",
-        ))
-    }
-
-    fn deserialize_u16<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_u16",
-            "Deserializing TTLV to the Rust u16 type is not supported.",
-        ))
-    }
-
-    fn deserialize_u32<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_u32",
-            "Deserializing TTLV to the Rust u32 type is not supported.",
-        ))
-    }
-
-    fn deserialize_u64<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_u64",
-            "Deserializing TTLV to the Rust u64 type is not supported.",
-        ))
-    }
-
-    fn deserialize_i8<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_i8",
-            "Deserializing TTLV to the Rust i8 type is not supported.",
-        ))
-    }
-
-    fn deserialize_i16<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_i16",
-            "Deserializing TTLV to the Rust i16 type is not supported.",
-        ))
-    }
-
-    fn deserialize_f32<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_f32",
-            "Deserializing TTLV to the Rust f32 type is not supported.",
-        ))
-    }
-
-    fn deserialize_f64<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_f64",
-            "Deserializing TTLV to the Rust f64 type is not supported.",
-        ))
-    }
-
-    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_char",
-            "Deserializing TTLV to the Rust char type is not supported.",
-        ))
-    }
-
-    fn deserialize_str<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_str",
-            "Deserializing TTLV to the Rust str type is not supported.",
-        ))
-    }
-
-    fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_map",
-            "Deserializing TTLV to Serde as a map is not supported.",
-        ))
-    }
-
-    fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_bytes",
-            "Deserializing TTLV to Serde as bytes is not supported.",
-        ))
-    }
-
-    fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.error(
-            "deserialize_unit",
-            "Deserializing TTLV to Serde as a unit is not supported.",
-        ))
-    }
+    unsupported_type!(deserialize_u8, u8);
+    unsupported_type!(deserialize_u16, u16);
+    unsupported_type!(deserialize_u32, u32);
+    unsupported_type!(deserialize_u64, u64);
+    unsupported_type!(deserialize_i8, i8);
+    unsupported_type!(deserialize_i16, i16);
+    unsupported_type!(deserialize_f32, f32);
+    unsupported_type!(deserialize_f64, f64);
+    unsupported_type!(deserialize_char, char);
+    unsupported_type!(deserialize_str, str);
+    unsupported_type!(deserialize_map, map);
+    unsupported_type!(deserialize_bytes, bytes);
+    unsupported_type!(deserialize_unit, unit);
 
     /// Deserialize the bytes at the current cursor location into .. anything.
     ///
