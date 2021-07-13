@@ -514,6 +514,7 @@ mod test {
         assert!(matches!(ItemType::from_str("0x05").unwrap(), ItemType::Enumeration));
         assert!(matches!(ItemType::from_str("0x06").unwrap(), ItemType::Boolean));
         assert!(matches!(ItemType::from_str("0x07").unwrap(), ItemType::TextString));
+        assert!(matches!(ItemType::from_str("0x08").unwrap(), ItemType::ByteString));
         assert!(matches!(ItemType::from_str("0x09").unwrap(), ItemType::DateTime));
 
         assert_eq!(ItemType::from_str("0x01").unwrap(), ItemType::try_from(0x01).unwrap());
