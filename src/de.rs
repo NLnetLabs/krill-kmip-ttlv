@@ -292,7 +292,23 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| v.split_once("==")) {
             // Have we earlier seen a TTLV tag 'wanted_tag' and if so was its value 'wanted_val'? If so then this is
             // the variant name to announce to Serde that we are deserializing into.
-            if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
+            if wanted_tag == "type" {
+                // See if wanted_val is a literal string that matches the TTLV type we are currently deserializing
+                // TODO: Add BigInteger and Interval when supported
+                if matches!(
+                    (wanted_val, self.item_type.unwrap()),
+                    ("Structure", ItemType::Structure)
+                        | ("Integer", ItemType::Integer)
+                        | ("LongInteger", ItemType::LongInteger)
+                        | ("Enumeration", ItemType::Enumeration)
+                        | ("Boolean", ItemType::Boolean)
+                        | ("TextString", ItemType::TextString)
+                        | ("ByteString", ItemType::ByteString)
+                        | ("DateTime", ItemType::DateTime)
+                ) {
+                    return Ok(true);
+                }
+            } else if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
                 if *seen_enum_val == wanted_val {
                     return Ok(true);
                 }
@@ -651,10 +667,12 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
 
                 visitor.visit_enum(&mut *self) // jumps to impl EnumAccess (ending at unit_variant()) below
             }
-            Some(ItemType::Structure) => {
-                // 2: Read a TTLV structure from the byte stream. This enables handling of cases such as
-                //    `BatchItem.operation` enum field that indicates the enum variant and thus structure type of
-                //    `BatchItem.payload` that this TTLV structure should be deserialized into.
+            Some(_) => {
+                // Handle cases such as a `BatchItem.operation` enum field that indicates the enum variant and thus
+                // structure type of `BatchItem.payload` that this TTLV structure should be deserialized into, the
+                // KeyMaterial case where the KeyMaterial is an enum that can be either bytes or a structure, or the
+                // AttributeValue case where the value can be one of several predefined structure types or any primitive
+                // type....
 
                 // If we couldn't work out the correct variant name to announce to serde, announce the enum tag as the
                 // variant name and let Serde handle it in case the caller has used `#[serde(other)]` to mark one
@@ -665,18 +683,6 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
 
                 visitor.visit_enum(&mut *self) // jumps to impl EnumAccess below
             }
-            Some(ItemType::ByteString) => {
-                // Handle the KeyMaterial case where the KeyMaterial is an enum that can be either bytes or a structure.
-
-                visitor.visit_enum(&mut *self) // jumps to impl EnumAccess below
-            }
-            Some(item_type) => Err(self.error(
-                "deserialize_enum",
-                &format!(
-                    "TTLV item type '{:?}' for enum '{}' cannot be deserialized into an enum",
-                    item_type, name
-                ),
-            )),
             None => Err(self.error(
                 "deserialize_enum",
                 &format!("TTLV item type for enum '{}' has not yet been read", name),
