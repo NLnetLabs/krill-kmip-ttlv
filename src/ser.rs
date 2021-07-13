@@ -10,7 +10,7 @@ use types::{TtlvBoolean, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvText
 
 use crate::{
     error::{Error, Result},
-    types::{self, ItemTag, ItemType, SerializableTtlvType, TtlvDateTime},
+    types::{self, ItemTag, ItemType, SerializableTtlvType, TtlvByteString, TtlvDateTime},
 };
 
 // --- Public interface ------------------------------------------------------------------------------------------------
@@ -195,6 +195,12 @@ impl serde::ser::Serializer for &mut Serializer {
         Ok(())
     }
 
+    /// Use #[serde(with = "serde_bytes")] to direct Serde to this serializer function for type Vec<u8>.
+    fn serialize_bytes(self, v: &[u8]) -> Result<()> {
+        TtlvByteString(v.to_vec()).write(&mut self.dst)?;
+        self.in_tag_header = false;
+        Ok(())
+    }
     /// Serialize a unit enum variant.
     ///
     /// We can't serialize based on the discriminant as Serde doesn't make that available to us. We also can't serialize
@@ -318,10 +324,6 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_char(self, _v: char) -> Result<()> {
         Err(Self::Error::UnsupportedType("char"))
-    }
-
-    fn serialize_bytes(self, _v: &[u8]) -> Result<()> {
-        Err(Self::Error::UnsupportedType("&[u8]"))
     }
 
     /// Serializing `None` values, e.g. Option::<TypeName>::None, is not supported as we have already serialized the
@@ -576,7 +578,15 @@ mod test {
             )],
         );
 
-        let use_case_output = "42007801000001204200770100000038420069010000002042006A0200000004000000010000000042006B0200000004000000000000000042000D0200000004000000010000000042000F01000000D842005C0500000004000000010000000042007901000000C04200570500000004000000020000000042009101000000A8420008010000003042000A070000001743727970746F6772617068696320416C676F726974686D0042000B05000000040000000300000000420008010000003042000A070000001443727970746F67726170686963204C656E6774680000000042000B02000000040000008000000000420008010000003042000A070000001843727970746F67726170686963205573616765204D61736B42000B02000000040000000C00000000";
+        let use_case_output = concat!(
+            "42007801000001204200770100000038420069010000002042006A0200000004000000010000000042006B0200000",
+            "004000000000000000042000D0200000004000000010000000042000F01000000D842005C05000000040000000100",
+            "00000042007901000000C04200570500000004000000020000000042009101000000A8420008010000003042000A0",
+            "70000001743727970746F6772617068696320416C676F726974686D0042000B050000000400000003000000004200",
+            "08010000003042000A070000001443727970746F67726170686963204C656E6774680000000042000B02000000040",
+            "000008000000000420008010000003042000A070000001843727970746F67726170686963205573616765204D6173",
+            "6B42000B02000000040000000C00000000"
+        );
 
         assert_eq!(use_case_output, hex::encode_upper(to_vec(&use_case_input).unwrap()));
     }
