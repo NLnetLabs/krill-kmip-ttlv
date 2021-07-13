@@ -307,7 +307,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             let wanted_values = wanted_values.strip_prefix("[").and_then(|v| v.strip_suffix("]"));
             if let Some(wanted_values) = wanted_values {
                 if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
-                    for wanted_value in wanted_values.split(",") {
+                    for wanted_value in wanted_values.split(',') {
                         if *seen_enum_val == wanted_value {
                             return Ok(true);
                         }
