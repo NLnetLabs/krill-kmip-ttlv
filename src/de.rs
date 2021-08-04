@@ -10,7 +10,7 @@ use std::{
 };
 
 use serde::{
-    de::{EnumAccess, MapAccess, SeqAccess, VariantAccess, Visitor},
+    de::{DeserializeOwned, EnumAccess, MapAccess, SeqAccess, VariantAccess, Visitor},
     Deserialize, Deserializer,
 };
 
@@ -25,6 +25,31 @@ use crate::{
 
 // --- Public interface ------------------------------------------------------------------------------------------------
 
+pub struct Config {
+    max_bytes: Option<u32>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { max_bytes: None }
+    }
+}
+
+impl Config {
+    fn max_bytes(&self) -> Option<u32> {
+        self.max_bytes
+    }
+}
+
+// Builder style interface
+impl Config {
+    pub fn with_max_bytes(self, max_bytes: u32) -> Self {
+        Self {
+            max_bytes: Some(max_bytes),
+        }
+    }
+}
+
 pub fn from_slice<'de, T>(bytes: &'de [u8]) -> Result<T>
 where
     T: Deserialize<'de>,
@@ -32,6 +57,51 @@ where
     let cursor = &mut Cursor::new(bytes);
     let mut deserializer = TtlvDeserializer::from_slice(cursor);
     T::deserialize(&mut deserializer)
+}
+
+/// Read and deserialize bytes from the given reader.
+///
+/// Attempting to process a stream whose initial TTL header length value is larger the config max_bytes, if any, will
+/// result in`Error::InvalidLength`.
+pub fn from_reader<T, R>(reader: &mut R, config: &Config) -> Result<T>
+where
+    T: DeserializeOwned,
+    R: Read,
+{
+    // When reading from a stream we don't know how many bytes to read until we've read the L of the first TTLV in
+    // the response stream. As the current implementation jumps around in the response bytes while parsing (see
+    // calls to set_position()), and requiring the caller to provider a Seek capable stream would be quite onerous,
+    // and as we're not trying to be super efficient as HSMs are typically quite slow anywa, just read the bytes into a
+    // Vec and then parse it from there. We can't just call read_to_end() because that can cause the response reading to
+    // block if the server doesn't close the connection after writing the response bytes (e.g. PyKMIP behaves this way).
+    // We know from the TTLV specification that the initial TTL bytes must be 8 bytes long (3-byte tag, 1-byte type,
+    // 4-byte length) so we attempt read to this "magic header" from the given stream.
+    let mut buf = vec![0; 8];
+    reader.read_exact(&mut buf).map_err(Error::IoError)?;
+
+    let mut cursor = Cursor::new(&mut buf);
+    let _tag = TtlvDeserializer::read_tag(&mut cursor)?;
+    let _type = TtlvDeserializer::read_type(&mut cursor)?;
+    let additional_len = TtlvDeserializer::read_length(&mut cursor)?;
+
+    // The number of bytes to allocate is determined by the data being read. It could be a gazillion bytes and we'd
+    // panic trying to allocate it. The caller is therefore advised to define an upper bound if the source cannot be
+    // trusted.
+    if let Some(max_bytes) = config.max_bytes() {
+        if additional_len > max_bytes {
+            return Err(Error::InvalidLength(format!(
+                "The TTLV response length ({}) is greater than the maximum supported ({})",
+                additional_len, max_bytes
+            )));
+        }
+    }
+
+    // Warning: this will panic if it fails to allocate the requested amount of memory!
+    buf.reserve(additional_len as usize);
+    buf.resize(buf.capacity(), 0);
+    reader.read_exact(&mut buf[8..]).map_err(Error::IoError)?;
+
+    from_slice(&buf)
 }
 
 // --- Private implementation details ----------------------------------------------------------------------------------
@@ -144,7 +214,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         }
     }
 
-    pub fn from_cursor(
+    fn from_cursor(
         src: &'c mut Cursor<&'de [u8]>,
         group_tag: ItemTag,
         group_type: ItemType,
@@ -174,23 +244,32 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         }
     }
 
-    fn read_tag(&mut self) -> Result<ItemTag> {
+    fn read_tag<R>(src: &mut R) -> Result<ItemTag>
+    where
+        R: Read,
+    {
         let mut raw_item_tag = [0u8; 3];
-        self.src.read_exact(&mut raw_item_tag)?;
+        src.read_exact(&mut raw_item_tag)?;
         let item_tag = ItemTag::from(raw_item_tag);
         Ok(item_tag)
     }
 
-    fn read_type(&mut self) -> Result<ItemType> {
+    fn read_type<R>(src: &mut R) -> Result<ItemType>
+    where
+        R: Read,
+    {
         let mut raw_item_type = [0u8; 1];
-        self.src.read_exact(&mut raw_item_type)?;
+        src.read_exact(&mut raw_item_type)?;
         let item_type = ItemType::try_from(raw_item_type[0])?;
         Ok(item_type)
     }
 
-    fn read_length(&mut self) -> Result<u32> {
+    fn read_length<R>(src: &mut R) -> Result<u32>
+    where
+        R: Read,
+    {
         let mut value_length = [0u8; 4];
-        self.src.read_exact(&mut value_length)?;
+        src.read_exact(&mut value_length)?;
         Ok(u32::from_be_bytes(value_length))
     }
 
@@ -209,8 +288,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         }
 
         self.item_start = self.pos() as u64;
-        self.item_tag = Some(self.read_tag()?);
-        self.item_type = Some(self.read_type()?);
+        self.item_tag = Some(Self::read_tag(self.src)?);
+        self.item_type = Some(Self::read_type(self.src)?);
 
         self.group_item_count += 1;
 
@@ -244,8 +323,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             // When invoked by Serde via from_slice() there is no prior call to next_key_seed() that reads the tag and
             // type as we are not visiting a map at that point. Thus we need to read the opening tag and type here.
             let group_start = self.src.position();
-            let group_tag = self.read_tag()?;
-            let group_type = self.read_type()?;
+            let group_tag = Self::read_tag(self.src)?;
+            let group_type = Self::read_type(self.src)?;
             (group_start, group_tag, group_type)
         } else {
             // When invoked while visiting a map the opening tag and type of the struct header will have already been
@@ -264,7 +343,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             .get_start_tag_type()
             .map_err(|err| self.error(caller_fn_name, &err.to_string()))?;
 
-        let group_len = self.read_length()?;
+        let group_len = Self::read_length(self.src)?;
         let group_end = (self.pos() + (group_len as usize)) as u64;
 
         let wanted_tag =
