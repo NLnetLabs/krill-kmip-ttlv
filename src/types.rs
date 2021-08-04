@@ -377,7 +377,7 @@ impl SerializableTtlvType for TtlvTextString {
         let v = self.0.as_bytes();
         let v_len = v.len() as u32;
         dst.write_all(&v_len.to_be_bytes())?; // Write L_ength
-        dst.write_all(&v)?; // Write V_alue
+        dst.write_all(v)?; // Write V_alue
         Ok(v_len)
     }
 }
@@ -411,7 +411,7 @@ impl SerializableTtlvType for TtlvByteString {
         let v = self.0.as_slice();
         let v_len = v.len() as u32;
         dst.write_all(&v_len.to_be_bytes())?; // Write L_ength
-        dst.write_all(&v)?; // Write V_alue
+        dst.write_all(v)?; // Write V_alue
         Ok(v_len)
     }
 }

@@ -315,12 +315,12 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             }
         } else if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| v.split_once(">=")) {
             if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
-                if ItemTag::from_str(&seen_enum_val)?.deref() >= ItemTag::from_str(wanted_val)?.deref() {
+                if ItemTag::from_str(seen_enum_val)?.deref() >= ItemTag::from_str(wanted_val)?.deref() {
                     return Ok(true);
                 }
             }
         } else if let Some((wanted_tag, wanted_values)) = variant.strip_prefix("if ").unwrap_or("").split_once(" in ") {
-            let wanted_values = wanted_values.strip_prefix("[").and_then(|v| v.strip_suffix("]"));
+            let wanted_values = wanted_values.strip_prefix('[').and_then(|v| v.strip_suffix(']'));
             if let Some(wanted_values) = wanted_values {
                 if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
                     for wanted_value in wanted_values.split(',') {
@@ -354,7 +354,7 @@ macro_rules! unsupported_type {
                 "Deserializing TTLV to the Rust $type type is not supported.",
             ))
         }
-    }
+    };
 }
 
 impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
