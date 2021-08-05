@@ -22,8 +22,13 @@ impl FromStr for ItemTag {
     type Err = Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        let v = u32::from_str_radix(s.trim_start_matches("0x"), 16)
-            .map_err(|err| Error::InvalidTag(format!("Invalid Item Tag '{}': {}", s, err.to_string())))?;
+        let v = u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|err| {
+            Error::InvalidTag(format!(
+                "Item tag '{}' should be a 0xNNNNNN numeric hex value defined with #[serde(rename = \"0xNNNNNNN\")]: {}",
+                s,
+                err.to_string()
+            ))
+        })?;
         Ok(ItemTag(v))
     }
 }
