@@ -17,6 +17,7 @@ pub enum Error {
     InvalidType(String),
     InvalidLength(String),
     InvalidUtf8(String),
+    UnableToDetermineTtlvStructureLength,
     ParseError(ItemTag),
     UnexpectedTtlvTag(ItemTag, String),
     UnexpectedTtlvType(ItemType, u8),
@@ -50,6 +51,9 @@ impl Display for Error {
             Error::InvalidType(err) => f.write_fmt(format_args!("Invalid Item Type: {}", err)),
             Error::InvalidLength(err) => f.write_fmt(format_args!("Invlid Item Length: {}", err)),
             Error::InvalidUtf8(err) => f.write_fmt(format_args!("Invalid UTF-8: {}", err)),
+            Error::UnableToDetermineTtlvStructureLength => {
+                f.write_str("The length of one or more TTLV structures could not be determined.")
+            }
             Error::ParseError(item_tag) => f.write_fmt(format_args!("Failed to parse TTLV tag '{:#0X?}'", item_tag)),
             Error::UnexpectedTtlvTag(item_tag, found) => f.write_fmt(format_args!(
                 "Unexpected TTLV tag: expected={}, found={}",

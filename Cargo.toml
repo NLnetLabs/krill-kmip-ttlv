@@ -8,6 +8,7 @@ license = "BSD-3-Clause"
 
 [dependencies]
 hex = "0.4.3"
+log = "0.4.14"
 serde = "1.0.126"
 
 [dev-dependencies]

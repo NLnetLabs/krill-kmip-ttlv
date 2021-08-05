@@ -2,8 +2,9 @@
 
 use std::{io::Write, str::FromStr};
 
+use log::{error, trace};
 use serde::{
-    ser::{self, Impossible},
+    ser::{self, Impossible, SerializeTupleStruct},
     Serialize,
 };
 use types::{TtlvBoolean, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvTextString};
@@ -44,8 +45,6 @@ pub struct Serializer {
     /// to and overwritten once the length of the value being written, and any padding to ignore, is known.
     bookmarks: Vec<usize>,
 
-    in_tag_header: bool,
-
     in_enum: bool,
 }
 
@@ -64,13 +63,10 @@ impl Serializer {
     /// assert_eq!(0x42007B_u32.to_be_bytes(), [00, 0x42, 0x00, 0x7B]); This will advance the buffer write position
     /// by 3 bytes.
     fn write_tag(&mut self, item_tag: ItemTag) -> Result<()> {
-        if self.in_tag_header {
-            self.write_type(ItemType::Structure)?;
-            self.write_zero_len()?;
-        }
+        trace!("Writing tag {}", item_tag);
         self.dst.write_all(&<[u8; 3]>::from(item_tag))?;
-        self.in_tag_header = true;
         self.in_enum = false;
+        trace!("Serialization buffer: {}", hex::encode_upper(&self.dst));
         Ok(())
     }
 
@@ -86,7 +82,6 @@ impl Serializer {
     /// fn rewite_len() knows where to come back to.
     fn write_zero_len(&mut self) -> Result<()> {
         self.dst.write_all(&[0u8, 0u8, 0u8, 0u8])?;
-        self.in_tag_header = false;
         self.bookmarks.push(self.dst.len());
         Ok(())
     }
@@ -102,6 +97,7 @@ impl Serializer {
             let len_to_write: u32 = (self.dst.len() - v_start_pos) as u32;
             let bytes_to_overwrite = &mut self.dst.as_mut_slice()[v_start_pos - 4..v_start_pos];
             bytes_to_overwrite.copy_from_slice(&len_to_write.to_be_bytes());
+            trace!("Rewriting len @ {} with value {:#X}", v_start_pos - 4, len_to_write);
         }
         Ok(())
     }
@@ -109,10 +105,16 @@ impl Serializer {
     /// To be called at the end of serializing the stream of TTLV bytes. Makes sure that we didn't forget to rewrite the
     /// last dummy TTLV length value and verifies afterwards that there are no bookmarks left.
     fn finalize(&mut self) -> Result<()> {
-        while !self.bookmarks.is_empty() {
-            self.rewrite_len()?;
+        if !self.bookmarks.is_empty() {
+            // This shouldn't happen.
+            error!(
+                "Length was not determined for one or more tags: Serialization buffer: {}",
+                hex::encode_upper(&self.dst)
+            );
+            Err(Error::UnableToDetermineTtlvStructureLength)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 }
 
@@ -135,14 +137,17 @@ impl serde::ser::Serializer for &mut Serializer {
     /// When using #[derive(Serialize)] you should use #[serde(rename = "0xAABBCC")] to cause the name argument value
     /// received here to be the TTLV tag value to use when serializing the structure to the write buffer.
     fn serialize_tuple_struct(self, name: &'static str, _len: usize) -> Result<Self::SerializeTupleStruct> {
+        trace!("Starting tuple struct");
         self.write_tag(ItemTag::from_str(name)?)?;
+        self.write_type(ItemType::Structure)?;
+        self.write_zero_len()?;
+        // SerializeTupleStruct will write out the tuple fields then call rewrite_len()
         Ok(self)
     }
 
     /// Serialize a Rust bool value into the TTLV write buffer as TTLV type 0x06 (Boolean).
     fn serialize_bool(self, v: bool) -> Result<()> {
         TtlvBoolean(v).write(&mut self.dst)?;
-        self.in_tag_header = false;
         Ok(())
     }
 
@@ -159,21 +164,18 @@ impl serde::ser::Serializer for &mut Serializer {
     /// Serialize a Rust integer value into the TTLV write buffer as TTLV type 0x02 (Integer).
     fn serialize_i32(self, v: i32) -> Result<()> {
         TtlvInteger(v).write(&mut self.dst)?;
-        self.in_tag_header = false;
         Ok(())
     }
 
     /// Serialize a Rust unsigned 32-bit integer value into the TTLV write buffer as TTLV type 0x05 (Enumeration).
     fn serialize_u32(self, v: u32) -> Result<()> {
         TtlvEnumeration(v).write(&mut self.dst)?;
-        self.in_tag_header = false;
         Ok(())
     }
 
     /// Serialize a Rust integer value into the TTLV write buffer as TTLV type 0x03 (Long Integer).
     fn serialize_i64(self, v: i64) -> Result<()> {
         TtlvLongInteger(v).write(&mut self.dst)?;
-        self.in_tag_header = false;
         Ok(())
     }
 
@@ -184,23 +186,21 @@ impl serde::ser::Serializer for &mut Serializer {
     /// (Long Integer).
     fn serialize_u64(self, v: u64) -> Result<()> {
         TtlvDateTime(v as i64).write(&mut self.dst)?;
-        self.in_tag_header = false;
         Ok(())
     }
 
     /// Serialize a Rust str value into the TTLV write buffer as TTLV type 0x07 (Text String).
     fn serialize_str(self, v: &str) -> Result<()> {
         TtlvTextString(v.to_string()).write(&mut self.dst)?;
-        self.in_tag_header = false;
         Ok(())
     }
 
     /// Use #[serde(with = "serde_bytes")] to direct Serde to this serializer function for type Vec<u8>.
     fn serialize_bytes(self, v: &[u8]) -> Result<()> {
         TtlvByteString(v.to_vec()).write(&mut self.dst)?;
-        self.in_tag_header = false;
         Ok(())
     }
+
     /// Serialize a unit enum variant.
     ///
     /// We can't serialize based on the discriminant as Serde doesn't make that available to us. We also can't serialize
@@ -226,30 +226,40 @@ impl serde::ser::Serializer for &mut Serializer {
     /// }
     /// ```
     fn serialize_unit_variant(self, name: &'static str, _variant_index: u32, variant: &'static str) -> Result<()> {
+        trace!("Writing enum unit variant {}", name);
         if !self.in_enum {
+            trace!("  Not inside enum, writing tag");
             // Quick hack to permit an enum to be used as a child of the AttributeValue tag with the value being written
             // serialized TTLV Enumeration but without the value having its own tag and type.
             self.write_tag(ItemTag::from_str(name)?)?;
         }
         let variant = u32::from_str_radix(variant.trim_start_matches("0x"), 16)?;
-        TtlvEnumeration(variant).write(&mut self.dst)?;
-        self.in_tag_header = false;
-        Ok(())
+        variant.serialize(self)
     }
 
     /// Serialize a struct SomeStruct(type) to the TTLV write buffer as if it were the naked type without the enclosing
     /// "newtype" SomeStruct wrapper.
+    ///
+    /// We don't use `#[serde(transparent)]` on the structs because then the serialization process would go straight to
+    /// functions such as `serialize_i32()` which serialize the V in TTLV but we also need to serialize the TTL part as
+    /// well.
     fn serialize_newtype_struct<T: ?Sized>(self, name: &'static str, value: &T) -> Result<()>
     where
         T: Serialize,
     {
-        self.write_tag(ItemTag::from_str(name)?)?;
-        value.serialize(self)?;
-        Ok(())
+        if let Some(name) = name.strip_prefix("Transparent:") {
+            trace!("Starting newtype struct as transparent single inner field: {}", name);
+            self.write_tag(ItemTag::from_str(name)?)?;
+            value.serialize(self)
+        } else {
+            trace!("Starting newtype struct as TTLV Structure: {} --> ", name);
+            let mut ser = self.serialize_tuple_struct(name, 1)?;
+            ser.serialize_field(value)?;
+            ser.end()
+        }
     }
 
-    /// Serialize a struct SomeStruct(a, b, c) to the TTLV write buffer as if it were the naked type without the
-    /// enclosing SomeStruct "tuple" wrapper.
+    /// Serialize a struct SomeEnumVariant(a, b, c) to the TTLV write buffer as a TTLV Structure with fields a, b and c.
     fn serialize_tuple_variant(
         self,
         name: &'static str,
@@ -257,24 +267,43 @@ impl serde::ser::Serializer for &mut Serializer {
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
+        trace!("Starting tuple variant");
         self.write_tag(ItemTag::from_str(name)?)?;
+        self.write_type(ItemType::Structure)?;
+        self.write_zero_len()?;
+        // SerializeTupleVariant will write out the tuple fields then call rewrite_len()
         Ok(self)
     }
 
     fn serialize_newtype_variant<T: ?Sized>(
         self,
         name: &'static str,
-        _variant_index: u32,
-        _variant: &'static str,
+        variant_index: u32,
+        variant: &'static str,
         value: &T,
     ) -> Result<()>
     where
         T: Serialize,
     {
-        self.write_tag(ItemTag::from_str(name)?)?;
-        self.in_enum = true;
-        value.serialize(self)?;
-        Ok(())
+        if variant == "Transparent" {
+            trace!(
+                "Starting newtype variant as transparent single inner field: {} (of {})",
+                variant,
+                name
+            );
+            self.write_tag(ItemTag::from_str(name)?)?;
+            self.in_enum = true;
+            value.serialize(self)
+        } else {
+            trace!(
+                "Starting newtype variant as tuple variant: {} (of {}) --> ",
+                variant,
+                name
+            );
+            let mut ser = self.serialize_tuple_variant(name, variant_index, variant, 1)?;
+            ser.serialize_field(value)?;
+            ser.end()
+        }
     }
 
     /// Dispatch serialization of a Rust sequence type such as Vec to the implementation of SerializeSeq that we
@@ -285,6 +314,7 @@ impl serde::ser::Serializer for &mut Serializer {
         // enum instead contains (e.g. a vec) then it represents the dynamic payload scenario where one of several
         // structures are possible and are used via a Rust enum but in that case we want to serialize a TTLV Structure
         // so disable the special enum in enum behaviour.
+        trace!("Starting sequence");
         self.in_enum = false;
         Ok(self)
     }
@@ -376,20 +406,12 @@ impl ser::SerializeSeq for &mut Serializer {
     where
         T: Serialize,
     {
-        value.serialize(&mut **self)?;
-        Ok(())
+        trace!("Writing sequence element");
+        value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<()> {
-        if self.in_tag_header {
-            // We emited a tag then started an empty sequence and thus never wrote a type or length to the byte stream.
-            // If another tag were to be written this would be caught by write_tag(), but if this sequence is the last
-            // TTLV item to be written this will not be caught in time to correctly calculate the length of the parent
-            // structure. As a sequence can only be contained by a structure so assume this should be an empty
-            // structure.
-            self.write_type(ItemType::Structure)?;
-            self.write_zero_len()?;
-        }
+        trace!("Ending sequence");
         Ok(())
     }
 }
@@ -405,18 +427,18 @@ impl ser::SerializeTupleStruct for &mut Serializer {
     where
         T: Serialize,
     {
-        value.serialize(&mut **self)?;
-        Ok(())
+        trace!("Writing tuple struct element");
+        value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<()> {
+        trace!("Ending tuple struct: rewriting len");
         // This fn is called at the end of serializing a Struct.
         // TODO: go back to the length byte pos in the vec and write in our distance from that point
         // Either we need to receive back from ... from where? we get no values passed to us, so instead we need to
         // store the position to go back to in the vec, but we'll need to do that for each level of struct nesting, push
         // them on and pop them off.
-        self.rewrite_len()?;
-        Ok(())
+        self.rewrite_len()
     }
 }
 
@@ -431,18 +453,18 @@ impl ser::SerializeTupleVariant for &mut Serializer {
     where
         T: Serialize,
     {
-        value.serialize(&mut **self)?;
-        Ok(())
+        trace!("Writing tuple variant element");
+        value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<Self::Ok> {
+        trace!("Ending tuple variant: rewriting len");
         // This fn is called at the end of serializing a tuple variant.
         // TODO: go back to the length byte pos in the vec and write in our distance from that point
         // Either we need to receive back from ... from where? we get no values passed to us, so instead we need to
         // store the position to go back to in the vec, but we'll need to do that for each level of struct nesting, push
         // them on and pop them off.
-        self.rewrite_len()?;
-        Ok(())
+        self.rewrite_len()
     }
 }
 
@@ -470,11 +492,11 @@ mod test {
         struct RequestHeader(ProtocolVersion, BatchCount);
 
         #[derive(Serialize)]
-        #[serde(rename = "0x42006B")]
+        #[serde(rename = "Transparent:0x42006B")]
         struct ProtocolVersionMinor(i32);
 
         #[derive(Serialize)]
-        #[serde(rename = "0x42006A")]
+        #[serde(rename = "Transparent:0x42006A")]
         struct ProtocolVersionMajor(i32);
 
         #[derive(Serialize)]
@@ -482,7 +504,7 @@ mod test {
         struct ProtocolVersion(ProtocolVersionMajor, ProtocolVersionMinor);
 
         #[derive(Serialize)]
-        #[serde(rename = "0x42000D")]
+        #[serde(rename = "Transparent:0x42000D")]
         struct BatchCount(i32);
 
         #[derive(Serialize)]
@@ -516,13 +538,16 @@ mod test {
         struct Attribute(AttributeName, AttributeValue);
 
         #[derive(Serialize)]
-        #[serde(rename = "0x42000A")]
+        #[serde(rename = "Transparent:0x42000A")]
         struct AttributeName(&'static str);
 
         #[derive(Serialize)]
         #[serde(rename = "0x42000B")]
         enum AttributeValue {
+            #[serde(rename = "Transparent")]
             CryptographicAlgorithm(CryptographicAlgorithm),
+
+            #[serde(rename = "Transparent")]
             Integer(i32),
         }
 
