@@ -5,6 +5,7 @@ authors = ["The NLnet Labs RPKI Team <rpki-team@nlnetlabs.nl>"]
 edition = "2018"
 description = "KMIP TTLV (de)serialization"
 license = "BSD-3-Clause"
+exclude = ["/.github"]
 
 [dependencies]
 hex = "0.4.3"
