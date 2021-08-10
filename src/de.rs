@@ -429,8 +429,12 @@ macro_rules! unsupported_type {
     ($deserialize:ident, $type:ident) => {
         fn $deserialize<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value> {
             Err(self.error(
-                "$deserialize",
-                "Deserializing TTLV to the Rust $type type is not supported.",
+                stringify!($deserialize),
+                concat!(
+                    "Deserializing TTLV to the Rust ",
+                    stringify!($type),
+                    " type is not supported."
+                ),
             ))
         }
     };
