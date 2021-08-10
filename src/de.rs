@@ -23,6 +23,9 @@ use crate::{
     },
 };
 
+use log::Level::Trace;
+use log::{log_enabled, trace};
+
 // --- Public interface ------------------------------------------------------------------------------------------------
 
 pub struct Config {
@@ -54,6 +57,10 @@ pub fn from_slice<'de, T>(bytes: &'de [u8]) -> Result<T>
 where
     T: Deserialize<'de>,
 {
+    if log_enabled!(Trace) {
+        trace!("Binary TTLV to decode: {}", hex::encode_upper(bytes));
+    }
+
     let cursor = &mut Cursor::new(bytes);
     let mut deserializer = TtlvDeserializer::from_slice(cursor);
     T::deserialize(&mut deserializer)

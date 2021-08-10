@@ -14,12 +14,21 @@ use crate::{
     types::{self, ItemTag, ItemType, SerializableTtlvType, TtlvByteString, TtlvDateTime},
 };
 
+use log::log_enabled;
+use log::Level::Trace;
+
 // --- Public interface ------------------------------------------------------------------------------------------------
 
 pub fn to_vec<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     let mut ser = Serializer::new();
     value.serialize(&mut ser)?;
-    ser.into_vec()
+    let res = ser.into_vec()?;
+
+    if log_enabled!(Trace) {
+        trace!("Serialized binary TTLV: {}", hex::encode_upper(&res));
+    }
+
+    Ok(res)
 }
 
 impl std::error::Error for Error {}
