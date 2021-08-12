@@ -358,11 +358,7 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         //
         // So in this case we should skip writing out the tag and only write the type, length and value.
 
-        // if self.expected_next_field_type != FieldType::Type {
-        //     trace!("  Not inside enum, writing tag");
         self.write_tag(ItemTag::from_str(name)?, false)?;
-        // }
-
         let variant = u32::from_str_radix(variant.trim_start_matches("0x"), 16)?;
         variant.serialize(self)
     }
