@@ -95,6 +95,21 @@ pub enum ItemType {
     // Interval = 0x0A,
 }
 
+impl std::fmt::Display for ItemType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ItemType::Structure => f.write_str("Structure (0x01)"),
+            ItemType::Integer => f.write_str("Integer (0x02)"),
+            ItemType::LongInteger => f.write_str("LongInteger (0x03)"),
+            ItemType::Enumeration => f.write_str("Enumeration (0x05)"),
+            ItemType::Boolean => f.write_str("Boolean (0x06)"),
+            ItemType::TextString => f.write_str("TextString (0x07)"),
+            ItemType::ByteString => f.write_str("ByteString (0x08)"),
+            ItemType::DateTime => f.write_str("DateTime (0x09)"),
+        }
+    }
+}
+
 impl TryFrom<u8> for ItemType {
     type Error = Error;
 
