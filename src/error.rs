@@ -49,7 +49,7 @@ impl Display for Error {
             Error::InsufficientBytes => f.write_str("Insufficient bytes"),
             Error::InvalidTag(err) => f.write_fmt(format_args!("Invalid Item Tag: {}", err)),
             Error::InvalidType(err) => f.write_fmt(format_args!("Invalid Item Type: {}", err)),
-            Error::InvalidLength(err) => f.write_fmt(format_args!("Invlid Item Length: {}", err)),
+            Error::InvalidLength(err) => f.write_fmt(format_args!("Invalid Item Length: {}", err)),
             Error::InvalidUtf8(err) => f.write_fmt(format_args!("Invalid UTF-8: {}", err)),
             Error::UnableToDetermineTtlvStructureLength => {
                 f.write_str("The length of one or more TTLV structures could not be determined.")
