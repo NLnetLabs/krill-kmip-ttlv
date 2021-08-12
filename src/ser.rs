@@ -394,6 +394,9 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
         trace!("Starting tuple variant");
+        // The Override name prefix has no meaning in the case of a tuple variant, it only applies to a single inner
+        // tagged value whose tag should be overriden. See serialize_newtype_variant().
+        let name = if let Some(name) = name.strip_prefix("Override:") { name } else { name };
         self.write_tag(ItemTag::from_str(name)?, false)?;
         self.write_type(ItemType::Structure)?;
         self.write_zero_len()?;
@@ -411,12 +414,16 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     where
         T: Serialize,
     {
+        // If the Override name prefix is present use the tag of this enum when writing the next item instead of that
+        // items own tag.
         let (name, set_ignore_next_tag) = if let Some(name) = name.strip_prefix("Override:") {
+            trace!("Tag of enum '{}' will suppress the next tag that would normally have been serialized.", name);
             (name, true)
         } else {
             (name, false)
         };
 
+        // If the variant name is "Transparent" serialize the inner value directly, don't wrap it in a TTLV Structure.
         if variant == "Transparent" {
             trace!(
                 "Starting newtype variant as transparent single inner field: {} (of {})",
