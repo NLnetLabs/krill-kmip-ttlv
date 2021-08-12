@@ -312,6 +312,7 @@ struct TtlvDeserializer<'de: 'c, 'c> {
     group_end: Option<u64>,
     group_fields: &'static [&'static str], // optional field handling: expected fields to compare to actual fields
     group_item_count: usize,               // optional field handling: index into the group_fields array
+    group_homogenous: bool,                // sequence/map field handling: are all items in the group of the same type?
 
     // for the current field being parsed
     item_start: u64, // optional field handling: point to return to if field is missing
@@ -334,6 +335,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             group_end: None,
             group_fields: &[],
             group_item_count: 0,
+            group_homogenous: false,
             item_start: 0,
             item_tag: None,
             item_type: None,
@@ -349,6 +351,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         group_type: ItemType,
         group_end: u64,
         group_fields: &'static [&'static str],
+        group_homogenous: bool, // are all items in the group the same tag and type?
         unit_enum_store: Rc<RefCell<HashMap<ItemTag, String>>>,
     ) -> Self {
         let group_start = src.position();
@@ -364,6 +367,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             group_end,
             group_fields,
             group_item_count: 0,
+            group_homogenous,
             item_start: group_start,
             item_tag: None,
             item_type: None,
@@ -625,6 +629,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
             group_type,
             group_end,
             fields,
+            false, // struct member fields can have different tags and types
             self.tag_value_store.clone(),
         );
 
@@ -691,6 +696,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
             seq_type,
             seq_end,
             &[],
+            true, // sequence fields must all have the same tag and type
             self.tag_value_store.clone(),
         );
 
@@ -1112,7 +1118,7 @@ impl<'de: 'c, 'c> SeqAccess<'de> for TtlvDeserializer<'de, 'c> {
         if !self.read_item_key("next_element_seed")? {
             // The end of the containing group was reached
             Ok(None)
-        } else if self.item_tag != self.group_tag || self.item_type != self.group_type {
+        } else if self.group_homogenous && (self.item_tag != self.group_tag || self.item_type != self.group_type) {
             // The next tag is not part of the sequence.
             // Walk the cursor back before the tag because we didn't consume it.
             self.src.set_position(self.item_start);
@@ -1153,14 +1159,39 @@ impl<'de: 'c, 'c> VariantAccess<'de> for &mut TtlvDeserializer<'de, 'c> {
         seed.deserialize(self)
     }
 
-    fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
+    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(self.error(
-            "newtype_variant_seed",
-            "Deserializing TTLV to the Rust enum tuple variant type is not supported.",
-        ))
+        // The caller has provided a Rust enum variant in tuple form, i.e. SomeEnum(a, b, c), and expects us to
+        // deserialize the right number of items to match those fields.
+        let seq_len = TtlvDeserializer::read_length(&mut self.src)?;
+        let seq_start = self.pos() as u64;
+        let seq_end = seq_start + (seq_len as u64);
+        let seq_tag = TtlvDeserializer::read_tag(&mut self.src)?;
+        let seq_type = TtlvDeserializer::read_type(&mut self.src)?;
+
+        // We just read the tag, type and length but each item in the sequence needs to be read in its entirety as a
+        // whole TTLV item so rewind the cursor that we give to the SeqAccess impl back to the start of the TTLV item.
+        let mut seq_cursor = self.src.clone();
+        seq_cursor.set_position(seq_start);
+
+        let descendent_parser = TtlvDeserializer::from_cursor(
+            &mut seq_cursor,
+            seq_tag,
+            seq_type,
+            seq_end,
+            &[],
+            false, // don't require all fields in the sequence to be of the same tag and type
+            self.tag_value_store.clone(),
+        );
+
+        let r = visitor.visit_seq(descendent_parser)?; // jumps to impl SeqAccess below
+
+        // The descendant parser cursor advanced but ours did not. Skip the tag that we just read.
+        self.src.set_position(seq_cursor.position());
+
+        Ok(r)
     }
 
     fn struct_variant<V>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value>
