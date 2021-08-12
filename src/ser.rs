@@ -1,6 +1,6 @@
 //! Serialize a Rust data structure into TTLV data.
 
-use std::{io::Write, str::FromStr};
+use std::{fmt::Display, io::Write, str::FromStr};
 
 use log::{error, trace};
 use serde::{
@@ -20,15 +20,16 @@ use log::Level::Trace;
 // --- Public interface ------------------------------------------------------------------------------------------------
 
 pub fn to_vec<T: Serialize>(value: &T) -> Result<Vec<u8>> {
-    let mut ser = Serializer::new();
+    let mut ser = TtlvSerializer::new();
     value.serialize(&mut ser)?;
-    let res = ser.into_vec()?;
+    let bytes = ser.into_vec()?;
 
     if log_enabled!(Trace) {
-        trace!("Serialized binary TTLV: {}", hex::encode_upper(&res));
+        trace!("Serialized binary TTLV: {}", hex::encode_upper(&bytes));
+        trace!("{}", crate::de::to_string(&bytes));
     }
 
-    Ok(res)
+    Ok(bytes)
 }
 
 impl std::error::Error for Error {}
@@ -41,8 +42,35 @@ impl serde::ser::Error for Error {
 
 // --- Private implementation details ----------------------------------------------------------------------------------
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum FieldType {
+    Tag,
+    Type,
+    Length,
+    Value,
+    TypeAndLengthAndValue,
+}
+
+impl Default for FieldType {
+    fn default() -> Self {
+        Self::Tag
+    }
+}
+
+impl Display for FieldType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FieldType::Tag => f.write_str("Tag"),
+            FieldType::Type => f.write_str("Type"),
+            FieldType::Length => f.write_str("Length"),
+            FieldType::Value => f.write_str("Value"),
+            FieldType::TypeAndLengthAndValue => f.write_str("TypeAndLengthAndValue"),
+        }
+    }
+}
+
 #[derive(Default)]
-pub struct Serializer {
+pub struct TtlvSerializer {
     /// The destination buffer to serialize TTLV bytes into. If we want to write to something else in future we will need
     /// a way to be able to write to an earlier position in the output so that we can rewrite an items length value once
     /// we know how long it is (with padding rules per TTLV type taken into account). Currently this is done simply by
@@ -54,10 +82,12 @@ pub struct Serializer {
     /// to and overwritten once the length of the value being written, and any padding to ignore, is known.
     bookmarks: Vec<usize>,
 
-    in_enum: bool,
+    expected_next_field_type: FieldType,
+
+    ignore_next_tag: bool,
 }
 
-impl Serializer {
+impl TtlvSerializer {
     pub fn new() -> Self {
         Self::default()
     }
@@ -67,22 +97,73 @@ impl Serializer {
         Ok(self.dst)
     }
 
+    fn advance_state(&mut self, next_field_type: FieldType) -> Result<bool> {
+        let next_expected_next_field_type = match (self.expected_next_field_type, next_field_type) {
+            // First, the normal cases: expect a certain field type to be written next and that is what is indicated
+            (FieldType::Tag, FieldType::Tag) => FieldType::Type,
+            (FieldType::Type, FieldType::Type) => FieldType::Length,
+            (FieldType::Type, FieldType::TypeAndLengthAndValue) => FieldType::Tag,
+            (FieldType::Length, FieldType::Length) => FieldType::Value,
+            (FieldType::Value, FieldType::Value) => FieldType::Tag,
+
+            // In the leaf case a V always follows TTL, but higher in the TTLV structure hierarchy the first item in
+            // a structure can be another TTLV item (i.e. we see a tag being written instead of a value)
+            (FieldType::Value, FieldType::Tag) => FieldType::Type,
+
+            // Special case: we've been explicitly asked after writing a tag to ignore a subsequent attempt to write
+            // another tag. Normally attempting to write TT would be an error, but in this case the second T should be
+            // silently ignored. This supports use cases like the KMIP Attribute Value which is of the form XTLV where
+            // X is constant tag value and not the normal tag associated with the item being serialized.
+            (FieldType::Type, FieldType::Tag) if self.ignore_next_tag => {
+                self.ignore_next_tag = false;
+                FieldType::Type
+            }
+
+            // Error, don't permit invalid things like TTVL etc.
+            (expected, actual) => {
+                trace!("Serialized binary TTLV: {}", hex::encode_upper(&self.dst));
+                trace!("{}", crate::de::to_string(&self.dst));
+                return Err(Error::SerializeError(format!(
+                    "Expected: {}, Actual: {}",
+                    expected, actual
+                )));
+            }
+        };
+
+        // Advance the state machine if needed
+        if next_expected_next_field_type != self.expected_next_field_type {
+            self.expected_next_field_type = next_expected_next_field_type;
+            Ok(true)
+        } else {
+            // It was permitted to stay in the current state. Signalling this allows calling code to know that it should
+            // NOT write out the next field, which normally would be an error and we would abort but in this case it is
+            // going to be okay as long as the caller respects this return value.
+            Ok(false)
+        }
+    }
+
     /// Write the item tag (a "three-byte binary unsigned integer, transmitted big-endian"). The caller is
     /// responsible for ensuring that the given tag value is big-endian encoded, i.e.
     /// assert_eq!(0x42007B_u32.to_be_bytes(), [00, 0x42, 0x00, 0x7B]); This will advance the buffer write position
     /// by 3 bytes.
-    fn write_tag(&mut self, item_tag: ItemTag) -> Result<()> {
-        trace!("Writing tag {}", item_tag);
-        self.dst.write_all(&<[u8; 3]>::from(item_tag))?;
-        self.in_enum = false;
-        trace!("Serialization buffer: {}", hex::encode_upper(&self.dst));
+    fn write_tag(&mut self, item_tag: ItemTag, set_ignore_next_tag: bool) -> Result<()> {
+        if self.advance_state(FieldType::Tag)? {
+            trace!("Writing tag {}", item_tag);
+            self.dst.write_all(&<[u8; 3]>::from(item_tag))?;
+            trace!("Serialization buffer: {}", hex::encode_upper(&self.dst));
+            if set_ignore_next_tag {
+                self.ignore_next_tag = true;
+            }
+        }
         Ok(())
     }
 
     /// Write the TTLV item type ("a byte containing a coded value"). This will advance the buffer write position by
     /// 1 byte.
     fn write_type(&mut self, item_type: ItemType) -> Result<()> {
-        self.dst.write_all(&[item_type as u8])?;
+        if self.advance_state(FieldType::Type)? {
+            self.dst.write_all(&[item_type as u8])?;
+        }
         Ok(())
     }
 
@@ -90,8 +171,10 @@ impl Serializer {
     /// the dummy bytes with the correct item length. Adds a bookmark at the current buffer write location so that
     /// fn rewite_len() knows where to come back to.
     fn write_zero_len(&mut self) -> Result<()> {
-        self.dst.write_all(&[0u8, 0u8, 0u8, 0u8])?;
-        self.bookmarks.push(self.dst.len());
+        if self.advance_state(FieldType::Length)? {
+            self.dst.write_all(&[0u8, 0u8, 0u8, 0u8])?;
+            self.bookmarks.push(self.dst.len());
+        }
         Ok(())
     }
 
@@ -127,7 +210,7 @@ impl Serializer {
     }
 }
 
-impl serde::ser::Serializer for &mut Serializer {
+impl serde::ser::Serializer for &mut TtlvSerializer {
     type Ok = ();
     type Error = Error;
 
@@ -147,7 +230,7 @@ impl serde::ser::Serializer for &mut Serializer {
     /// received here to be the TTLV tag value to use when serializing the structure to the write buffer.
     fn serialize_tuple_struct(self, name: &'static str, _len: usize) -> Result<Self::SerializeTupleStruct> {
         trace!("Starting tuple struct");
-        self.write_tag(ItemTag::from_str(name)?)?;
+        self.write_tag(ItemTag::from_str(name)?, false)?;
         self.write_type(ItemType::Structure)?;
         self.write_zero_len()?;
         // SerializeTupleStruct will write out the tuple fields then call rewrite_len()
@@ -156,7 +239,9 @@ impl serde::ser::Serializer for &mut Serializer {
 
     /// Serialize a Rust bool value into the TTLV write buffer as TTLV type 0x06 (Boolean).
     fn serialize_bool(self, v: bool) -> Result<()> {
-        TtlvBoolean(v).write(&mut self.dst)?;
+        if self.advance_state(FieldType::TypeAndLengthAndValue)? {
+            TtlvBoolean(v).write(&mut self.dst)?;
+        }
         Ok(())
     }
 
@@ -172,19 +257,25 @@ impl serde::ser::Serializer for &mut Serializer {
 
     /// Serialize a Rust integer value into the TTLV write buffer as TTLV type 0x02 (Integer).
     fn serialize_i32(self, v: i32) -> Result<()> {
-        TtlvInteger(v).write(&mut self.dst)?;
+        if self.advance_state(FieldType::TypeAndLengthAndValue)? {
+            TtlvInteger(v).write(&mut self.dst)?;
+        }
         Ok(())
     }
 
     /// Serialize a Rust unsigned 32-bit integer value into the TTLV write buffer as TTLV type 0x05 (Enumeration).
     fn serialize_u32(self, v: u32) -> Result<()> {
-        TtlvEnumeration(v).write(&mut self.dst)?;
+        if self.advance_state(FieldType::TypeAndLengthAndValue)? {
+            TtlvEnumeration(v).write(&mut self.dst)?;
+        }
         Ok(())
     }
 
     /// Serialize a Rust integer value into the TTLV write buffer as TTLV type 0x03 (Long Integer).
     fn serialize_i64(self, v: i64) -> Result<()> {
-        TtlvLongInteger(v).write(&mut self.dst)?;
+        if self.advance_state(FieldType::TypeAndLengthAndValue)? {
+            TtlvLongInteger(v).write(&mut self.dst)?;
+        }
         Ok(())
     }
 
@@ -194,19 +285,25 @@ impl serde::ser::Serializer for &mut Serializer {
     /// correct TTLV type we can't handle these in serialize_i64 as that is already used for TTLV type 0x03
     /// (Long Integer).
     fn serialize_u64(self, v: u64) -> Result<()> {
-        TtlvDateTime(v as i64).write(&mut self.dst)?;
+        if self.advance_state(FieldType::TypeAndLengthAndValue)? {
+            TtlvDateTime(v as i64).write(&mut self.dst)?;
+        }
         Ok(())
     }
 
     /// Serialize a Rust str value into the TTLV write buffer as TTLV type 0x07 (Text String).
     fn serialize_str(self, v: &str) -> Result<()> {
-        TtlvTextString(v.to_string()).write(&mut self.dst)?;
+        if self.advance_state(FieldType::TypeAndLengthAndValue)? {
+            TtlvTextString(v.to_string()).write(&mut self.dst)?;
+        }
         Ok(())
     }
 
     /// Use #[serde(with = "serde_bytes")] to direct Serde to this serializer function for type Vec<u8>.
     fn serialize_bytes(self, v: &[u8]) -> Result<()> {
-        TtlvByteString(v.to_vec()).write(&mut self.dst)?;
+        if self.advance_state(FieldType::TypeAndLengthAndValue)? {
+            TtlvByteString(v.to_vec()).write(&mut self.dst)?;
+        }
         Ok(())
     }
 
@@ -236,12 +333,36 @@ impl serde::ser::Serializer for &mut Serializer {
     /// ```
     fn serialize_unit_variant(self, name: &'static str, _variant_index: u32, variant: &'static str) -> Result<()> {
         trace!("Writing enum unit variant {}", name);
-        if !self.in_enum {
-            trace!("  Not inside enum, writing tag");
-            // Quick hack to permit an enum to be used as a child of the AttributeValue tag with the value being written
-            // serialized TTLV Enumeration but without the value having its own tag and type.
-            self.write_tag(ItemTag::from_str(name)?)?;
-        }
+
+        // Don't write the tag if we just wrote a tag. This can happen in situations like this:
+        //
+        //   Tag: Template-Attribute (0x420091), Type: Structure (0x01), Data:
+        //     Tag: Attribute (0x420008), Type: Structure (0x01), Data:
+        //       Tag: Attribute Name (0x42000A), Type: Text String (0x07), Data: Cryptographic Algorithm
+        //       Tag: Attribute Value (0x42000B), Type: Enumeration (0x05), Data: 0x00000003 (AES)
+        //
+        // Here we've just written out the tag 0x42000B and we're about to write the enum value 0x00000003. However, the
+        // input to Serde that we are processing looked like this:
+        //
+        //   #[derive(Clone, Copy, Debug, Deserialize, Serialize, Display, PartialEq, Eq)]
+        //   #[serde(rename = "0x420028")]
+        //   #[non_exhaustive]
+        //   #[allow(non_camel_case_types)]
+        //   pub enum CryptographicAlgorithm {
+        //       #[serde(rename = "0x00000001")]
+        //       ...
+        //
+        // This type has its own tag, 0x4200028, and we would normally write this out as a full TTLV. In the case of a
+        // KMIP Attribute Value however the tag is always the same, 0x420000B, and the type of the data is inferred by
+        // the deserializer by looking at the Data of the preceeding Attribute Name.
+        //
+        // So in this case we should skip writing out the tag and only write the type, length and value.
+
+        // if self.expected_next_field_type != FieldType::Type {
+        //     trace!("  Not inside enum, writing tag");
+        self.write_tag(ItemTag::from_str(name)?, false)?;
+        // }
+
         let variant = u32::from_str_radix(variant.trim_start_matches("0x"), 16)?;
         variant.serialize(self)
     }
@@ -258,7 +379,7 @@ impl serde::ser::Serializer for &mut Serializer {
     {
         if let Some(name) = name.strip_prefix("Transparent:") {
             trace!("Starting newtype struct as transparent single inner field: {}", name);
-            self.write_tag(ItemTag::from_str(name)?)?;
+            self.write_tag(ItemTag::from_str(name)?, false)?;
             value.serialize(self)
         } else {
             trace!("Starting newtype struct as TTLV Structure: {} --> ", name);
@@ -277,7 +398,7 @@ impl serde::ser::Serializer for &mut Serializer {
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
         trace!("Starting tuple variant");
-        self.write_tag(ItemTag::from_str(name)?)?;
+        self.write_tag(ItemTag::from_str(name)?, false)?;
         self.write_type(ItemType::Structure)?;
         self.write_zero_len()?;
         // SerializeTupleVariant will write out the tuple fields then call rewrite_len()
@@ -294,14 +415,19 @@ impl serde::ser::Serializer for &mut Serializer {
     where
         T: Serialize,
     {
+        let (name, set_ignore_next_tag) = if let Some(name) = name.strip_prefix("Override:") {
+            (name, true)
+        } else {
+            (name, false)
+        };
+
         if variant == "Transparent" {
             trace!(
                 "Starting newtype variant as transparent single inner field: {} (of {})",
                 variant,
                 name
             );
-            self.write_tag(ItemTag::from_str(name)?)?;
-            self.in_enum = true;
+            self.write_tag(ItemTag::from_str(name)?, set_ignore_next_tag)?;
             value.serialize(self)
         } else {
             trace!(
@@ -318,13 +444,7 @@ impl serde::ser::Serializer for &mut Serializer {
     /// Dispatch serialization of a Rust sequence type such as Vec to the implementation of SerializeSeq that we
     /// provide.
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
-        // When we have an enum containing an enum in Rust (e.g. a KMIP attribute with an Enumeration value) that is
-        // expressed in TTLV as a single enum tag and for that case we earlier set self.in_enum = true. However, if the
-        // enum instead contains (e.g. a vec) then it represents the dynamic payload scenario where one of several
-        // structures are possible and are used via a Rust enum but in that case we want to serialize a TTLV Structure
-        // so disable the special enum in enum behaviour.
         trace!("Starting sequence");
-        self.in_enum = false;
         Ok(self)
     }
 
@@ -365,10 +485,31 @@ impl serde::ser::Serializer for &mut Serializer {
         Err(Self::Error::UnsupportedType("char"))
     }
 
-    /// Serializing `None` values, e.g. Option::<TypeName>::None, is not supported as we have already serialized the
-    /// item tag to the output by the time we process the `Option` value. The correct way to omit None values is to not
-    /// attempt to serialize them at all, e.g. using the `#[serde(skip_serializing_if = "Option::is_none")]` Serde
-    /// derive field attribute.
+    /// Serializing `None` values, e.g. Option::<TypeName>::None, is not supported.
+    ///
+    /// TTLV doesn't support the notion of a serialized value that indicates the absence of a value.
+    ///
+    /// ### Using Serde to "skip" a missing value
+    ///
+    /// The correct way to omit None values is to not attempt to serialize them at all, e.g. using the
+    /// `#[serde(skip_serializing_if = "Option::is_none")]` Serde derive field attribute. Note that at the time of
+    /// writing it seems that Serde derive only handles this attribute correctly when used on Rust brace struct field
+    /// members (which we do not support), or on tuple struct fields (i.e. there must be more than one field). Also,
+    /// note that not serializing a None struct field value will still result in the struct itself being serialized as
+    /// a TTLV "Structure" unless you also mark the struct as "transparent" (using the rename attribute like so:
+    /// `[#serde(rename = "Transparent:0xAABBCC"))]`. Using the attribute on newtype structs still causes Serde derive
+    /// to invoke `serialize_none()` which will result in an unsupported error.
+    ///
+    /// ### Rationale
+    ///
+    /// As we have already serialized the item tag to the output by the time we process the `Option` value, serializing
+    /// nothing here would still result in something having been serialized. We could in theory remove the already
+    /// serialized bytes from the stream but is not necessarily safe, e.g. if the already serialized bytes were a TTLV
+    /// Structure "header" (i.e. 0xAABBCC 0x00000001 0x00000000) removing the header might be incorrect if there are
+    /// other structure items that will be serialized to the stream after this "none". Removing the Structure "header"
+    /// bytes would also break the current logic which at the end of a structure goes back to the start and replaces the
+    /// zero length value in the TTLV Structure "header" with the actual length as the bytes to replace would no longer
+    /// exist.
     fn serialize_none(self) -> Result<()> {
         Err(Self::Error::UnsupportedType("None"))
     }
@@ -389,6 +530,12 @@ impl serde::ser::Serializer for &mut Serializer {
         Err(Self::Error::UnsupportedType("map"))
     }
 
+    /// Serializing Rust brace structs to TTLV is not supported.
+    ///
+    /// Use of newtype and tuple structs is preferred as it leads to less verbose (yet still well named) Rust
+    /// hierarchical data structures because the field names do not need to be expressed. Usually this would be less
+    /// readable but because wrapper types must be used around primitive types (in order to give them a Serde "name"
+    /// which will be used as the TTLV "tag") then the unnamed primitive value is still wrapped in a named wrapper type.
     fn serialize_struct(self, _name: &'static str, _len: usize) -> Result<Self::SerializeStruct> {
         Err(Self::Error::UnsupportedType("struct"))
     }
@@ -407,7 +554,7 @@ impl serde::ser::Serializer for &mut Serializer {
 // =======================================
 // SERIALIZATION OF RUST SEQUENCES TO TTLV
 // =======================================
-impl ser::SerializeSeq for &mut Serializer {
+impl ser::SerializeSeq for &mut TtlvSerializer {
     type Ok = ();
     type Error = Error;
 
@@ -428,7 +575,7 @@ impl ser::SerializeSeq for &mut Serializer {
 // ===========================================
 // SERIALIZATION OF RUST TUPLE STRUCTS TO TTLV
 // ===========================================
-impl ser::SerializeTupleStruct for &mut Serializer {
+impl ser::SerializeTupleStruct for &mut TtlvSerializer {
     type Ok = ();
     type Error = Error;
 
@@ -454,7 +601,7 @@ impl ser::SerializeTupleStruct for &mut Serializer {
 // ============================================
 // SERIALIZATION OF RUST TUPLE VARIANTS TO TTLV
 // ============================================
-impl ser::SerializeTupleVariant for &mut Serializer {
+impl ser::SerializeTupleVariant for &mut TtlvSerializer {
     type Ok = ();
     type Error = Error;
 
@@ -551,7 +698,7 @@ mod test {
         struct AttributeName(&'static str);
 
         #[derive(Serialize)]
-        #[serde(rename = "0x42000B")]
+        #[serde(rename = "Override:0x42000B")]
         enum AttributeValue {
             #[serde(rename = "Transparent")]
             CryptographicAlgorithm(CryptographicAlgorithm),
@@ -622,24 +769,121 @@ mod test {
             "6B42000B02000000040000000C00000000"
         );
 
-        assert_eq!(use_case_output, hex::encode_upper(to_vec(&use_case_input).unwrap()));
+        assert_eq!(
+            use_case_output,
+            hex::encode_upper(to_vec(&use_case_input).unwrap()),
+            "expected hex (left) differs to the generated hex (right)"
+        );
+    }
+
+    // The rule for how Rust structs are by default mapped to TTLV is: a struct will be serialized as a Structure,
+    // UNLESS it has been marked as "transparent". To use a Rust struct as a container to hang a Serde attribute off
+    // without actually serializing it as a TTLV Structure one must mark the struct as "transparent". Option types
+    // are also transparent in the sense that either the entire value SHOULD NOT be serialized if it is None, or if
+    // Some then only its inner value will be serialized.
+
+    #[test]
+    fn test_structure_members_must_be_tagged() {
+        // The following cannot be serialized as valid TTLV because a Rust struct is serialized as a TTLV Structure and
+        // a TTLV Structure must contain complete TTLV items (i.e. a full Tag+Type+Length+Value). This doesn't work for
+        // primitive types as they are passed by Serde Derive to serializer functions that only take a value as an
+        // argument, e.g. `serialize_i32(self, value)`, and so the serializer has no name from which to create the tag
+        // (for the initial T in TTLV) for the item. We also cannot handle a None value inside a struct because a None
+        // value should not be serialized at all yet by the time serialize_none() is invoked, the outer struct TTL part
+        // has already been serialized to the byte stream and not serializing the V part doesn't remove the alraedy
+        // serialized TTL part.
+        #[derive(Serialize)]
+        #[serde(rename = "0xAABBCC")]
+        struct SomeStruct(i32);
+        let to_encode = SomeStruct(3);
+        assert!(to_vec(&to_encode).is_err()); // Error: attempt to serialize malformed TTLTLV.
     }
 
     #[test]
-    fn test_some_option_ttlv_item() {
+    fn test_a_transparent_struct_can_be_used_to_tag_a_primitive_value() {
+        // If we instead mark the struct as transparent we can then serialize the inner value using the Serde "name" of
+        // the struct as the TTLV tag, instead of creating a containing TTLV Structure with that tag as happens
+        // otherwise.
+        #[derive(Serialize)]
+        #[serde(rename = "Transparent:0xAABBCC")]
+        struct SomeStruct(i32);
+        let to_encode = SomeStruct(3);
+        assert_eq!(
+            "AABBCC02000000040000000300000000",
+            hex::encode_upper(to_vec(&to_encode).unwrap()),
+            "expected hex (left) differs to the generated hex (right)"
+        );
+    }
+
+    #[test]
+    fn test_ttlv_has_no_concept_of_values_that_denote_absence() {
         #[derive(Serialize)]
         #[serde(rename = "0xAABBCC")]
-        struct ItemWithOptionalField(Option<i32>);
-        let with_some = ItemWithOptionalField(Some(3));
+        struct SomeStruct(Option<i32>);
+        let to_encode = SomeStruct(None);
+        assert!(to_vec(&to_encode).is_err()); // Error: serializing None is not supported.
+    }
+
+    #[test]
+    fn test_optional_values_that_are_present_are_serialized_as_the_value_directly() {
+        #[derive(Serialize)]
+        #[serde(rename = "Transparent:0xAABBCC")]
+        struct SomeStruct(Option<i32>);
+        let to_encode = SomeStruct(Some(3));
+        assert_eq!(
+            "AABBCC02000000040000000300000000",
+            hex::encode_upper(to_vec(&to_encode).unwrap()),
+            "expected hex (left) differs to the generated hex (right)"
+        );
+    }
+
+    #[test]
+    fn test_serde_derive_doesnt_skip_an_inner_none_inside_a_newtype() {
+        // One would expect the following to work, but Serde Derive ignores the skip directive in this case and still
+        // attempts to serialize the None. What would it mean for a Structure expected to have a single field for that
+        // field to be missing anyway?
+        #[derive(Serialize)]
+        #[serde(rename = "Transparent:0xAABBCC")]
+        struct TransparentItemWithConditionallySerializedOptionalField(
+            #[serde(skip_serializing_if = "Option::is_none")] Option<i32>,
+        );
+        let transparent_conditional_with_none = TransparentItemWithConditionallySerializedOptionalField(None);
+        assert!(to_vec(&transparent_conditional_with_none).is_err()); // Error: serializing None is not supported.
+    }
+
+    #[test]
+    fn test_transparent_is_only_for_newtypes_not_for_tuples() {
+        // Serde Derive will correctly ignore the None field if it is not the only field, but then in this case
+        // "Transparent:0xNNNNNNN" isn't supported because it is intended only for the case of a single inner field.
+        #[derive(Serialize)]
+        #[serde(rename = "Transparent:0xAABBCC")]
+        struct TransparentTupleWithConditionallySerializedOptionalField(
+            i32,
+            #[serde(skip_serializing_if = "Option::is_none")] Option<i32>,
+        );
+        let transparent_tuple_conditional_with_none = TransparentTupleWithConditionallySerializedOptionalField(1, None);
+        assert!(to_vec(&transparent_tuple_conditional_with_none).is_err()); // Error: "Transparent" is not supported here.
+    }
+
+    #[test]
+    fn test_serde_derive_can_skip_optional_none_values_in_a_tuple() {
+        // We can use Serde Derive to skip serialization of a None value if it is not the only inner value in the type
+        // being serialized:
+        #[derive(Serialize)]
+        #[serde(rename = "Transparent:0x123456")]
+        struct SomeTaggedValue(i32);
 
         #[derive(Serialize)]
         #[serde(rename = "0xAABBCC")]
-        struct ItemWithoutOptionalField(i32);
-        let without_some = ItemWithoutOptionalField(3);
-
-        let encoded_with_some = hex::encode_upper(to_vec(&with_some).unwrap());
-        let encoded_without_some = hex::encode_upper(to_vec(&without_some).unwrap());
-
-        assert_eq!(encoded_with_some, encoded_without_some);
+        struct TupleWithConditionallySerializedOptionalField(
+            SomeTaggedValue,
+            #[serde(skip_serializing_if = "Option::is_none")] Option<SomeTaggedValue>,
+        );
+        let tuple_conditional_with_none = TupleWithConditionallySerializedOptionalField(SomeTaggedValue(3), None);
+        assert_eq!(
+            "AABBCC010000001012345602000000040000000300000000",
+            hex::encode_upper(to_vec(&tuple_conditional_with_none).unwrap()),
+            "expected hex (left) differs to the generated hex (right)"
+        );
     }
 }

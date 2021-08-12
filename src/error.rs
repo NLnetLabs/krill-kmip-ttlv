@@ -11,6 +11,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     // TODO: use named struct fields
     DeserializeError { ctx: String, pos: usize, msg: String },
+    SerializeError(String),
     IoError(std::io::Error),
     InsufficientBytes,
     InvalidTag(String),
@@ -45,6 +46,7 @@ impl Display for Error {
                 "Deserialization error: {} at position {} with context {:?}",
                 ctx, pos, msg
             )),
+            Error::SerializeError(err) => f.write_fmt(format_args!("Serialization error: {}", err)),
             Error::IoError(err) => f.write_fmt(format_args!("IO error: {:?}", err)),
             Error::InsufficientBytes => f.write_str("Insufficient bytes"),
             Error::InvalidTag(err) => f.write_fmt(format_args!("Invalid Item Tag: {}", err)),
