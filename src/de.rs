@@ -61,6 +61,10 @@ where
         trace!("Binary TTLV to decode: {}", hex::encode_upper(bytes));
     }
 
+    if log_enabled!(Trace) {
+        trace!("Binary TTLV in human readable form:\n{}", to_string(bytes));
+    }
+
     let cursor = &mut Cursor::new(bytes);
     let mut deserializer = TtlvDeserializer::from_slice(cursor);
     T::deserialize(&mut deserializer)
