@@ -23,8 +23,8 @@ use crate::{
     },
 };
 
-use log::Level::Trace;
-use log::{log_enabled, trace};
+use log::Level::Debug;
+use log::{log_enabled, debug};
 
 // --- Public interface ------------------------------------------------------------------------------------------------
 
@@ -57,12 +57,12 @@ pub fn from_slice<'de, T>(bytes: &'de [u8]) -> Result<T>
 where
     T: Deserialize<'de>,
 {
-    if log_enabled!(Trace) {
-        trace!("Binary TTLV to decode: {}", hex::encode_upper(bytes));
+    if log_enabled!(Debug) {
+        debug!("Binary TTLV to decode: {}", hex::encode_upper(bytes));
     }
 
-    if log_enabled!(Trace) {
-        trace!("Binary TTLV in human readable form:\n{}", to_string(bytes));
+    if log_enabled!(Debug) {
+        debug!("Binary TTLV in human readable form:\n{}", to_string(bytes));
     }
 
     let cursor = &mut Cursor::new(bytes);

@@ -2,7 +2,7 @@
 
 use std::{fmt::Display, io::Write, str::FromStr};
 
-use log::{error, trace};
+use log::{debug, error, trace};
 use serde::{
     ser::{self, Impossible, SerializeTupleStruct},
     Serialize,
@@ -15,7 +15,7 @@ use crate::{
 };
 
 use log::log_enabled;
-use log::Level::Trace;
+use log::Level::Debug;
 
 // --- Public interface ------------------------------------------------------------------------------------------------
 
@@ -24,9 +24,9 @@ pub fn to_vec<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     value.serialize(&mut ser)?;
     let bytes = ser.into_vec()?;
 
-    if log_enabled!(Trace) {
-        trace!("Serialized binary TTLV: {}", hex::encode_upper(&bytes));
-        trace!("{}", crate::de::to_string(&bytes));
+    if log_enabled!(Debug) {
+        debug!("Serialized binary TTLV: {}", hex::encode_upper(&bytes));
+        debug!("{}", crate::de::to_string(&bytes));
     }
 
     Ok(bytes)
