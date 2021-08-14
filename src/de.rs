@@ -24,7 +24,7 @@ use crate::{
 };
 
 use log::Level::Debug;
-use log::{log_enabled, debug};
+use log::{debug, log_enabled};
 
 // --- Public interface ------------------------------------------------------------------------------------------------
 
@@ -195,7 +195,12 @@ pub fn to_string(bytes: &[u8]) -> String {
             Ok((ttlv_string, possible_new_struct_len)) => {
                 // Add (with correct indentation) the human readable result of deserialization to the "report" built up
                 // so far.
-                report.push_str(&format!("{:width$}{ttlv_string}", "", width = indent, ttlv_string = &ttlv_string));
+                report.push_str(&format!(
+                    "{:width$}{ttlv_string}",
+                    "",
+                    width = indent,
+                    ttlv_string = &ttlv_string
+                ));
 
                 // Handle descent into an inner TTLV "Structure"
                 if let Some(new_len) = possible_new_struct_len {
