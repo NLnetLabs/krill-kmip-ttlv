@@ -218,6 +218,7 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     // RUST TYPES FOR WHICH SERIALIZATION TO TTLV IS SUPPORTED
     // =======================================================
     type SerializeSeq = Self;
+    type SerializeStruct = Self;
     type SerializeTupleStruct = Self;
     type SerializeTupleVariant = Self;
 
@@ -363,28 +364,6 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         variant.serialize(self)
     }
 
-    /// Serialize a struct SomeStruct(type) to the TTLV write buffer as if it were the naked type without the enclosing
-    /// "newtype" SomeStruct wrapper.
-    ///
-    /// We don't use `#[serde(transparent)]` on the structs because then the serialization process would go straight to
-    /// functions such as `serialize_i32()` which serialize the V in TTLV but we also need to serialize the TTL part as
-    /// well.
-    fn serialize_newtype_struct<T: ?Sized>(self, name: &'static str, value: &T) -> Result<()>
-    where
-        T: Serialize,
-    {
-        if let Some(name) = name.strip_prefix("Transparent:") {
-            trace!("Starting newtype struct as transparent single inner field: {}", name);
-            self.write_tag(ItemTag::from_str(name)?, false)?;
-            value.serialize(self)
-        } else {
-            trace!("Starting newtype struct as TTLV Structure: {} --> ", name);
-            let mut ser = self.serialize_tuple_struct(name, 1)?;
-            ser.serialize_field(value)?;
-            ser.end()
-        }
-    }
-
     /// Serialize a struct SomeEnumVariant(a, b, c) to the TTLV write buffer as a TTLV Structure with fields a, b and c.
     fn serialize_tuple_variant(
         self,
@@ -396,7 +375,11 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         trace!("Starting tuple variant");
         // The Override name prefix has no meaning in the case of a tuple variant, it only applies to a single inner
         // tagged value whose tag should be overriden. See serialize_newtype_variant().
-        let name = if let Some(name) = name.strip_prefix("Override:") { name } else { name };
+        let name = if let Some(name) = name.strip_prefix("Override:") {
+            name
+        } else {
+            name
+        };
         self.write_tag(ItemTag::from_str(name)?, false)?;
         self.write_type(ItemType::Structure)?;
         self.write_zero_len()?;
@@ -417,7 +400,10 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         // If the Override name prefix is present use the tag of this enum when writing the next item instead of that
         // items own tag.
         let (name, set_ignore_next_tag) = if let Some(name) = name.strip_prefix("Override:") {
-            trace!("Tag of enum '{}' will suppress the next tag that would normally have been serialized.", name);
+            trace!(
+                "Tag of enum '{}' will suppress the next tag that would normally have been serialized.",
+                name
+            );
             (name, true)
         } else {
             (name, false)
@@ -444,6 +430,49 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         }
     }
 
+    /// Serialize a struct SomeStruct(type) to the TTLV write buffer as if it were the naked type without the enclosing
+    /// "newtype" SomeStruct wrapper.
+    ///
+    /// We don't use `#[serde(transparent)]` on the structs because then the serialization process would go straight to
+    /// functions such as `serialize_i32()` which serialize the V in TTLV but we also need to serialize the TTL part as
+    /// well.
+    fn serialize_newtype_struct<T: ?Sized>(self, name: &'static str, value: &T) -> Result<()>
+    where
+        T: Serialize,
+    {
+        if let Some(name) = name.strip_prefix("Transparent:") {
+            trace!("Starting newtype struct as transparent single inner field: {}", name);
+            self.write_tag(ItemTag::from_str(name)?, false)?;
+            value.serialize(self)
+        } else {
+            trace!("Starting newtype struct as TTLV Structure: {} --> ", name);
+            let mut ser = self.serialize_tuple_struct(name, 1)?;
+            ser.serialize_field(value)?;
+            ser.end()
+        }
+    }
+
+    /// Serializing Rust brace structs to TTLV.
+    ///
+    /// Use of newtype and tuple structs is preferred as it leads to less verbose (yet still well named) Rust
+    /// hierarchical data structures because the field names do not need to be expressed. Usually this would be less
+    /// readable but because wrapper types must be used around primitive types (in order to give them a Serde "name"
+    /// which will be used as the TTLV "tag") then the unnamed primitive value is still wrapped in a named wrapper type.
+    ///
+    /// One use case for brace structs however is to avoid having to define separately a tuple struct for a type sent in
+    /// a request and a brace struct for the same type when received in a response. For structs with many fields this
+    /// can lead to a lot of duplication. If instead a single brace struct is defined but helper functions on the struct
+    /// are used to streamline the request construction this can be a way to achieve the best of both worlds: simple
+    /// requests based on anonymous fields that are self-evident from their type names, and responses with helpfully
+    /// named member fields for cases where there is no need to explicitly name the field type in order to use it.
+    fn serialize_struct(self, name: &'static str, _len: usize) -> Result<Self::SerializeStruct> {
+        self.write_tag(ItemTag::from_str(name)?, false)?;
+        self.write_type(ItemType::Structure)?;
+        self.write_zero_len()?;
+        // SerializeStruct will write out the tuple fields then call rewrite_len()
+        Ok(self)
+    }
+
     /// Dispatch serialization of a Rust sequence type such as Vec to the implementation of SerializeSeq that we
     /// provide.
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
@@ -464,7 +493,6 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     // ==============================================================
 
     type SerializeMap = Impossible<(), Self::Error>;
-    type SerializeStruct = Impossible<(), Self::Error>;
     type SerializeStructVariant = Impossible<(), Self::Error>;
     type SerializeTuple = Impossible<(), Self::Error>;
 
@@ -533,16 +561,6 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         Err(Self::Error::UnsupportedType("map"))
     }
 
-    /// Serializing Rust brace structs to TTLV is not supported.
-    ///
-    /// Use of newtype and tuple structs is preferred as it leads to less verbose (yet still well named) Rust
-    /// hierarchical data structures because the field names do not need to be expressed. Usually this would be less
-    /// readable but because wrapper types must be used around primitive types (in order to give them a Serde "name"
-    /// which will be used as the TTLV "tag") then the unnamed primitive value is still wrapped in a named wrapper type.
-    fn serialize_struct(self, _name: &'static str, _len: usize) -> Result<Self::SerializeStruct> {
-        Err(Self::Error::UnsupportedType("struct"))
-    }
-
     fn serialize_struct_variant(
         self,
         _name: &'static str,
@@ -575,6 +593,28 @@ impl ser::SerializeSeq for &mut TtlvSerializer {
     }
 }
 
+// =====================================
+// SERIALIZATION OF RUST STRUCTS TO TTLV
+// =====================================
+impl ser::SerializeStruct for &mut TtlvSerializer {
+    type Ok = ();
+    type Error = Error;
+
+    fn serialize_field<T: ?Sized>(&mut self, _key: &'static str, value: &T) -> Result<()>
+    where
+        T: Serialize,
+    {
+        trace!("Writing struct element");
+        value.serialize(&mut **self)
+    }
+
+    fn end(self) -> Result<()> {
+        trace!("Ending struct: rewriting len");
+        // This fn is called at the end of serializing a Struct.
+        self.rewrite_len()
+    }
+}
+
 // ===========================================
 // SERIALIZATION OF RUST TUPLE STRUCTS TO TTLV
 // ===========================================
@@ -593,10 +633,6 @@ impl ser::SerializeTupleStruct for &mut TtlvSerializer {
     fn end(self) -> Result<()> {
         trace!("Ending tuple struct: rewriting len");
         // This fn is called at the end of serializing a Struct.
-        // TODO: go back to the length byte pos in the vec and write in our distance from that point
-        // Either we need to receive back from ... from where? we get no values passed to us, so instead we need to
-        // store the position to go back to in the vec, but we'll need to do that for each level of struct nesting, push
-        // them on and pop them off.
         self.rewrite_len()
     }
 }
