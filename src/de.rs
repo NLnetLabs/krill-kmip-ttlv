@@ -216,8 +216,9 @@ pub fn to_string(bytes: &[u8]) -> String {
                     if new_len == 0 {
                         // This can happen if we are trying to dump out bytes that we were busy serializing when we hit
                         // an error before we were able to go back into the byte stream to rewrite the structure length
-                        // once the length was known.
-                        report.push_str("WARNING: TTLV structure length unknown, cannot outdent at structure end\n");
+                        // once the length was known. Note: this can also be correct, it might actually be an empty
+                        // structure, but we cannot distinguish between the two cases.
+                        report.push_str("WARNING: TTLV structure length is zero\n");
                         broken = true;
                     } else {
                         cur_struct_end = Some(cursor.position() + new_len);
