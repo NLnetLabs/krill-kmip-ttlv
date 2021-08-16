@@ -72,9 +72,11 @@ where
 
 /// Read and deserialize bytes from the given reader.
 ///
+/// Note: Also accepts a mut reference.
+///
 /// Attempting to process a stream whose initial TTL header length value is larger the config max_bytes, if any, will
 /// result in`Error::InvalidLength`.
-pub fn from_reader<T, R>(reader: &mut R, config: &Config) -> Result<T>
+pub fn from_reader<T, R>(mut reader: R, config: &Config) -> Result<T>
 where
     T: DeserializeOwned,
     R: Read,
@@ -133,9 +135,9 @@ pub fn to_string(bytes: &[u8]) -> String {
     /// On success returns the human readable string representation of the parsed TTLV item and if it was a "Structure"
     /// header also returns the byte length of the structure that follows. If the bytes in the stream at the cursor
     /// position are not valid TTLV an error will be returned.
-    fn deserialize_ttlv_to_string(cursor: &mut Cursor<&[u8]>) -> Result<(String, Option<u64>)> {
-        let tag = TtlvDeserializer::read_tag(cursor)?;
-        let typ = TtlvDeserializer::read_type(cursor)?;
+    fn deserialize_ttlv_to_string(mut cursor: &mut Cursor<&[u8]>) -> Result<(String, Option<u64>)> {
+        let tag = TtlvDeserializer::read_tag(&mut cursor)?;
+        let typ = TtlvDeserializer::read_type(&mut cursor)?;
         let mut len = Option::<u64>::None;
         const EMPTY_STRING: String = String::new();
 
@@ -383,7 +385,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         }
     }
 
-    fn read_tag<R>(src: &mut R) -> Result<ItemTag>
+    /// Note: Also accepts a mut reference.
+    fn read_tag<R>(mut src: R) -> Result<ItemTag>
     where
         R: Read,
     {
@@ -393,7 +396,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         Ok(item_tag)
     }
 
-    fn read_type<R>(src: &mut R) -> Result<ItemType>
+    /// Note: Also accepts a mut reference.
+    fn read_type<R>(mut src: R) -> Result<ItemType>
     where
         R: Read,
     {
@@ -403,7 +407,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         Ok(item_type)
     }
 
-    fn read_length<R>(src: &mut R) -> Result<u32>
+    /// Note: Also accepts a mut reference.
+    fn read_length<R>(mut src: R) -> Result<u32>
     where
         R: Read,
     {
@@ -427,8 +432,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         }
 
         self.item_start = self.pos() as u64;
-        self.item_tag = Some(Self::read_tag(self.src)?);
-        self.item_type = Some(Self::read_type(self.src)?);
+        self.item_tag = Some(Self::read_tag(&mut self.src)?);
+        self.item_type = Some(Self::read_type(&mut self.src)?);
 
         self.group_item_count += 1;
 
@@ -462,8 +467,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             // When invoked by Serde via from_slice() there is no prior call to next_key_seed() that reads the tag and
             // type as we are not visiting a map at that point. Thus we need to read the opening tag and type here.
             let group_start = self.src.position();
-            let group_tag = Self::read_tag(self.src)?;
-            let group_type = Self::read_type(self.src)?;
+            let group_tag = Self::read_tag(&mut self.src)?;
+            let group_type = Self::read_type(&mut self.src)?;
             (group_start, group_tag, group_type)
         } else {
             // When invoked while visiting a map the opening tag and type of the struct header will have already been
@@ -482,7 +487,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             .get_start_tag_type()
             .map_err(|err| self.error(caller_fn_name, &err.to_string()))?;
 
-        let group_len = Self::read_length(self.src)?;
+        let group_len = Self::read_length(&mut self.src)?;
         let group_end = (self.pos() + (group_len as usize)) as u64;
 
         let wanted_tag =
