@@ -28,6 +28,7 @@ use log::{debug, log_enabled};
 
 // --- Public interface ------------------------------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct Config {
     max_bytes: Option<u32>,
 }
