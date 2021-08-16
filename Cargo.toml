@@ -5,6 +5,9 @@ authors = ["The NLnet Labs RPKI Team <rpki-team@nlnetlabs.nl>"]
 edition = "2018"
 description = "KMIP TTLV (de)serialization"
 license = "BSD-3-Clause"
+repository = "https://github.com/NLnetLabs/krill-kmip-ttlv/"
+keywords = ["KMIP", "TTLV"]
+categories = ["cryptography", "data-structures", "encoding", "parser-implementations"]
 exclude = ["/.github"]
 
 [dependencies]
