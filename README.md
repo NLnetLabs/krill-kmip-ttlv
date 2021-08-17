@@ -47,6 +47,7 @@ Not all TTLV types are supported:
 - Offer a strongly typed interface that prevents incorrect composition of low-level building blocks in ways that have no correct meaning in the a higher level KMIP interface specification. Leverage the Rust compile time capabilities to prevent writing of incorrect requests where possible, so that incorrect usage of the protocol at runtime is minimized.
 - It should be possible to compose a high level KMIP request structure succinctly and in such a way that the written code is clearly relatable to the KMIP specifications.
 - It should be possible for the results of deserialization to be interacted with without needing to know the KMIP specifications in detail, i.e. it should be in terms of Rust types, not TTLV types and the objects interacted with should have clearly named fields and only have response fields relevant to the request that was submitted.
+- TTLV tag codes should be defined near to the type definition that they tag. 
 
 ### Example code
 
@@ -102,6 +103,10 @@ assert_eq!(&item.payload.unique_id, "fc8833de-70d2-4ece-b063-fede3a3c59fe");
 ```
 
 Likewise rather than process and/or index into an arbitrary sequence of TTLV response key/value pairs, this strongly typed approach makes it clear which fields are available and makes them immediately usable as Rust types.
+
+### Re-use of existing metadata
+
+The current approach makes heavy use of `#[serde(rename = "0xNNNNNN")]` to inform the (de)serializer of the TTLV tag that should be read from or written to the data stream for the current type, and infers the TTLV type to serialize to based on the Rust type being serialized. In certain special cases the Serde name is further (ab)used by including additional hints in the name for use by the deserializer.
 
 ### Alternatives considered
 
