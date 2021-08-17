@@ -27,6 +27,21 @@ Note: The scope is limited to TTLV-over-TLS. Support for HTTPS instead of TLS an
 
 This is a work-in-progress. The interface offered by this library is expected to change and **no guarantee** of interface stability is made at this time. The intention is publish this crate in the near future to https://crates.io/ to be depended on by Krill like any other Rust crate dependency. See the https://github.com/NLnetLabs/krill-kmip-protocol/ repository for an implementation of a KMIP TTLV client that uses this crate as the core building block and also includes a sample TTLV over TLS client.
 
+Not all TTLV types are supported:
+
+| TTLV Type | TTLV Type Code | Supported? |
+|---|---|
+| Structure | 0x01 | ✔️ |
+| Integer | 0x02 | ✔️ |
+| Long Integer | 0x03 | ✔️ |
+| Big Integer | 0x04 | |
+| Enumeration | 0x05 | ✔️ |
+| Boolean | 0x06 | ✔️ |
+| Text String | 0x07 | ✔️ |
+| Byte String | 0x08 | ✔️ |
+| Date Time | 0x09 | ✔️ |
+| Interval | 0x0A | |
+
 ### Design goals
 
 - Offer a strongly typed interface that prevents incorrect composition of low-level building blocks in ways that have no correct meaning in the a higher level KMIP interface specification. Leverage the Rust compile time capabilities to prevent writing of incorrect requests where possible, so that incorrect usage of the protocol at runtime is minimized.
