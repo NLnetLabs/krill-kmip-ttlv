@@ -30,7 +30,7 @@ This is a work-in-progress. The interface offered by this library is expected to
 Not all TTLV types are supported:
 
 | TTLV Type | TTLV Type Code | Supported? |
-|---|---|
+|---|---|---|
 | Structure | 0x01 | ✔️ |
 | Integer | 0x02 | ✔️ |
 | Long Integer | 0x03 | ✔️ |
