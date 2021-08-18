@@ -1,0 +1,155 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="A crate to de/serialize Rust data types from/to bytes in the KMIP TTLV format."><meta name="keywords" content="rust, rustlang, rust-lang, krill_kmip_ttlv"><title>krill_kmip_ttlv - Rust</title><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../ayu.css" disabled ><script id="default-settings"></script><script src="../storage.js"></script><script src="../crates.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="alternate icon" type="image/png" href="../favicon-16x16.png">
+<link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../down-arrow.svg");}</style></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu" role="button">&#9776;</div><a href='../krill_kmip_ttlv/index.html'><div class='logo-container rust-logo'><img src='../rust-logo.png' alt='logo'></div></a><h2 class="location">Crate krill_kmip_ttlv</h2><div class="block version"><p>Version 0.1.0-dev</p></div><div class="sidebar-elems"><a id="all-types" href="all.html"><p>See all krill_kmip_ttlv's items</p></a><div class="block items"><ul><li><a href="#modules">Modules</a></li></ul></div><div id="sidebar-vars" data-name="krill_kmip_ttlv" data-ty="mod" data-relpath=""></div><script defer src="sidebar-items.js"></script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img src="../brush.svg" width="18" height="18" alt="Pick another theme!"></button><div id="theme-choices" role="menu"></div></div><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../settings.html" title="settings"><img src="../wheel.svg" width="18" height="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">krill_kmip_ttlv</a><button id="copy-path" onclick="copy_path(this)" title="copy path"><img src="../clipboard.svg" width="19" height="18" alt="Copy item import" title="Copy item import to clipboard"></button></span><span class="out-of-band"><span id="render-detail"><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span><a class="srclink" href="../src/krill_kmip_ttlv/lib.rs.html#1-184" title="goto source code">[src]</a></span></h1><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>A crate to de/serialize Rust data types from/to bytes in the KMIP TTLV format.</p>
+<h1 id="usage" class="section-header"><a href="#usage">Usage</a></h1>
+<p>Assuming that you have already defined your Rust types with the required attributes (more on this below):</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ</div></div><div class="example-wrap"><pre class="rust rust-example-rendered ignore">
+<span class="kw">use</span> <span class="ident">krill_kmip_ttlv</span>::{<span class="ident">Config</span>, <span class="ident">from_reader</span>, <span class="ident">to_vec</span>};
+
+<span class="comment">// Create a defensive deserializer configuration</span>
+<span class="kw">let</span> <span class="ident">config</span> <span class="op">=</span> <span class="ident">Config::new</span>().<span class="ident">with_max_bytes</span>(<span class="number">1024</span>);
+
+<span class="comment">// Serialize a struct to a byte vec</span>
+<span class="kw">let</span> <span class="ident">bytes</span> <span class="op">=</span> <span class="ident">to_vec</span>(<span class="kw-2">&amp;</span><span class="ident">my_struct</span>)<span class="question-mark">?</span>;
+
+<span class="comment">// Deserialize the byte vec back to a struct</span>
+<span class="kw">let</span> <span class="ident">my_other_struct</span>: <span class="ident">MyStruct</span> <span class="op">=</span> <span class="ident">from_reader</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">reader</span>, <span class="kw-2">&amp;</span><span class="ident">config</span>)<span class="question-mark">?</span>;</pre></div>
+<p>Note that this crate does <strong>NOT</strong> send or receive data, it only (de)serializes it.</p>
+<h1 id="tagged-vs-named-data-types" class="section-header"><a href="#tagged-vs-named-data-types">Tagged vs named data types</a></h1>
+<p>Unlike formats like JSON which use named fields, TTLV uses tagged fields where tags are numeric values which KMIP
+expresses in hexadecimal notation, e.g. see the <a href="https://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc262581263">TTLV Encoding / Defined Values</a> section of the <a href="https://docs.oasis-open.org/kmip/spec/v1.0/kmip-spec-1.0.html">KMIP 1.0 specification</a>.</p>
+<p>This crate implements (de)serialization in terms of <a href="https://serde.rs/">Serde</a> with the intention that you describe your types for
+Serde using <a href="https://serde.rs/attributes.html">Serde’s derive attributes</a>. In addition to deriving the <code>Serialize</code> and/or <code>Deserialize</code> traits you
+must also map each Rust type to/from a TTLV “tag” value by telling Serde Derive to rename your type to its hex tag
+value.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">use</span> <span class="ident">serde_derive::Serialize</span>;
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Serialize</span>)]</span>
+<span class="attribute">#[<span class="ident">serde</span>(<span class="ident">rename</span> <span class="op">=</span> <span class="string">&quot;0x123456&quot;</span>)]</span>
+<span class="kw">struct</span> <span class="ident">MyTtlv</span> { }
+
+<span class="macro">println!</span>(<span class="string">&quot;{:0X?}&quot;</span>, <span class="ident">krill_kmip_ttlv::to_vec</span>(<span class="kw-2">&amp;</span><span class="ident">MyTtlv</span> {}));
+
+<span class="comment">// prints:</span>
+<span class="comment">// Ok([12, 34, 56, 1, 0, 0, 0, 0])</span></pre></div>
+<p>You can see the TTLV byte format here: a 3 byte “tag”, a 1 byte “type” (type code 1 means a TTLV Structure) and
+a 4 byte “length”. There is no “value” part in this case because the struct doesn’t have any fields so the value
+length is zero.</p>
+<h1 id="choosing-tag-values" class="section-header"><a href="#choosing-tag-values">Choosing tag values</a></h1>
+<p>When implementing one of the KMIP specifications the tag value to use for each KMIP object is defined by the spec.
+The KMIP specifications reserve tag value range 0x420000 - 0x42FFFF for official KMIP tags and reserve tag value
+range 0x540000 - 0x54FFFF for custom extensions. If using TTLV as a serialization format for your own data you are
+free to choose your own tag values anywhere in the range 0x000000 - 0xFFFFFF.</p>
+<h1 id="unsupported-data-types" class="section-header"><a href="#unsupported-data-types">Unsupported data types</a></h1>
+<p>The following Rust types <strong>CANNOT</strong> be <em>serialized</em> to TTLV as TTLV has no concept of unsigned
+integers, floating point, character or ‘missing’ values : <code>u8</code>, <code>u16</code>, <code>f32</code>, <code>f64</code>, <code>char</code>, <code>()</code>, <code>None</code> <em>(but see
+below for a special note about <code>None</code>)</em>.</p>
+<p>The following Rust types <strong>CANNOT</strong> be <em>deserialized</em> into from TTLV: <code>()</code>, <code>u8</code>, <code>u16</code>, <code>u32</code>, <code>u64</code>,
+<code>i8</code>, <code>i16</code>, <code>f32</code>, <code>f64</code>, <code>char</code>, <code>str</code>, map, <code>&amp;[u8]</code>, <code>()</code>.
+<code>char</code>,</p>
+<p>The following TTLV types <strong>CANNOT</strong> <em>yet</em> be (de)serialized: Big Integer (0x04), Interval (0x0A). If you need
+support for these the crate can be extended to support them, PRs are welcome!</p>
+<p>The following Rust types <strong>CANNOT</strong> be deserialized into as this crate is opinionated and prefers to
+deserialize only into named fields, not nameless groups of values: unit struct, tuple struct, tuple. If you need
+support for more Rust types the crate can be extended to support them, PRs are welcome!</p>
+<p>The rationale for this is that when serializing the meaningful type name is obvious to the programmer because only
+tagged types can be serialized and tags can only be “hung off” Rust structs and enums which always have names. When
+deserializing the field being accessed in the data type that was deserialized into only has a name if we require it
+to have one. You could deserialize a named (via tag value) set of TTLV Structure fields into a Rust tuple where in
+each individual value has no name, the TTLV tag value got lost in translation. This is just plain unhelpful and thus
+not supported.</p>
+<h1 id="getting-involved" class="section-header"><a href="#getting-involved">Getting involved</a></h1>
+<p>The capabilities of this crate and the TTLV and Rust data types supported are those that were needed to provide a
+foundation for the <code>krill-kmip-protocol</code> crate. This crate does not yet support every possible TTLV or Rust type. If
+you wish to extend the crate yourself PRs are welcome!</p>
+<h1 id="data-types-treated-specially" class="section-header"><a href="#data-types-treated-specially">Data types treated specially</a></h1>
+<ul>
+<li>
+<p>The Rust ‘struct’ type by default serializes to a TTLV Structure but by using the <code>Transparent:</code> name prefix it is
+possible to serialize the member fields of the struct without creating a TTLV Structure wrapper in the byte stream.</p>
+</li>
+<li>
+<p>The Rust <code>Some</code> type is handled as if it were only the value inside the Option, the <code>Some</code> wrapper is ignored.</p>
+</li>
+<li>
+<p>The Rust <code>None</code> type should be handled by placing the <code>#[serde(skip_serializing_if = &quot;Option::is_none&quot;)]</code> attribute
+on the <code>Option</code> to be serialized. When deserializing if an <code>Option</code> value is not present in the bytes being
+deserialized this will result in the <code>Option</code> field having value <code>None</code>.</p>
+</li>
+<li>
+<p>The Rust ‘Vec’ type can be used to (de)serialize to one or more TTLV items. To serialize a <code>Vec</code> of bytes to a TTLV
+Byte String however you should annotate the field with the Serde derive attribute <code>#[serde(with = &quot;serde_bytes&quot;)]</code>.</p>
+</li>
+<li>
+<p>The Rust <code>enum</code> type is serialized differently depending on the type of the variant being serialized. For unit
+variants a <code>#[serde(rename = &quot;0xNNNNNNNN&quot;)]</code> attribute should be used to cause this crate to serialize the value as
+a TTLV Enumeration. A tuple or struct variant will be serialized to a TTLV Structure.</p>
+</li>
+<li>
+<p>In order to <em>deserialize</em> into a Rust <code>enum</code> you must guide this crate to the correct variant to deserialize into.
+To support the KMIP specifications this crate supports choosing the variant based on the value of a TTLV Enumeration
+that was encountered earlier in the deserialization process. To handle this case each <code>enum</code> variant to be selected
+between must be specially renamed with Serde derive using one of several supported special syntaxes:</p>
+<ul>
+<li><code>#[serde(rename = &quot;if 0xNNNNNN==0xMMMMMMMM&quot;)]</code> syntax will cause this crate to look for a previously encountered
+TTLV Enumeration with tag value 0xNNNNNN and to select this <code>enum</code> variant if that Enumeration had value
+0xMMMMMMMM.</li>
+<li><code>#[serde(rename = &quot;if 0xNNNNNN in [0xAAAAAAAA, 0xBBBBBBBB, ..]&quot;)]</code> is like the previous syntax but can match
+against more than one possible value.</li>
+<li><code>#[serde(rename = &quot;if 0xNNNNNN &gt;= 0xMMMMMMMM&quot;)]</code> can be used to select the variant if a previously seen value
+for the specified tag was at least the given value.</li>
+<li><code>#[serde(rename = &quot;if 0xNNNNNN==Textual Content&quot;)]</code> syntax will cause this crate to look for a previously
+encountered TTLV Text String with tag value 0xNNNNNN and to select this <code>enum</code> variant if that Text String had
+value <code>Textual Content</code>.</li>
+<li><code>#[serde(rename = &quot;if type==XXX&quot;)]</code> syntax (where <code>XXX</code> is a camel case TTLV type name without spaces such as
+<code>LongInteger</code>) will cause this crate to select the enum variant if the TTLV type encountered while deserializing
+has the specified type.</li>
+</ul>
+</li>
+</ul>
+<h1 id="supported-data-types" class="section-header"><a href="#supported-data-types">Supported data types</a></h1>
+<p>The following data type mappings are supported by this crate:</p>
+<table><thead><tr><th>TTLV data type</th><th>Serializes from</th><th>Deserializes to</th></tr></thead><tbody>
+<tr><td>Structure (0x01)</td><td><code>SomeStruct { .. }</code>, <code>SomeStruct( .. )</code>, tuple variant</td><td><code>SomeStruct { .. }</code></td></tr>
+<tr><td>Integer (0x02)</td><td><code>i8</code>, <code>i16</code>, <code>i32</code></td><td><code>i32</code></td></tr>
+<tr><td>Long Integer (0x03)</td><td><code>i64</code></td><td><code>i64</code></td></tr>
+<tr><td>Big Integer (0x04)</td><td><strong>UNSUPPORTED</strong></td><td><strong>UNSUPPORTED</strong></td></tr>
+<tr><td>Enumeration (0x05)</td><td><code>u32</code></td><td>See above</td></tr>
+<tr><td>Boolean (0x06)</td><td><code>bool</code></td><td><code>bool</code></td></tr>
+<tr><td>Text String (0x07)</td><td>`str``</td><td><code>String</code></td></tr>
+<tr><td>Byte String (0x08)</td><td><code>&amp;[u8]</code></td><td><code>Vec&lt;u8&gt;</code></td></tr>
+<tr><td>Date Time (0x09)</td><td><code>u64</code></td><td><code>i64</code></td></tr>
+<tr><td>Interval (0x0A)</td><td><strong>UNSUPPORTED</strong></td><td><strong>UNSUPPORTED</strong></td></tr>
+</tbody></table>
+<h1 id="examples" class="section-header"><a href="#examples">Examples</a></h1>
+<p>For detailed examples of how to annotate your data types with Serde derive attributes look at the tests in the
+source repository for this crate at the end of the <code>de.rs</code> and <code>ser.rs</code> source code files.</p>
+<p>For much richer examples see the code and tests in the source repository for the <code>kmip-ttlv-protocol</code> crate.</p>
+<h1 id="diagnostics" class="section-header"><a href="#diagnostics">Diagnostics</a></h1>
+<p>If your crate provides a <a href="http://crates.io/crates/log">log</a> implementation then this crate will log at debug and trace level, if those levels
+are enabled. At debug level every byte array is dumped in hex form pre-deserialization and post-serialization, along
+with a human readable tree of the TTLV tree it represents. The latter is a best effort in the case of invalid or
+incomplete TTLV. Trace level logs far too much about the internal logic of this crate and will likely be reduced as
+the crate matures in favour of better error return values.</p>
+<h1 id="error-handling" class="section-header"><a href="#error-handling">Error handling</a></h1>
+<p>Deserialization will be aborted by Serde if your type specification is too inflexible to handle the bytes being
+deserialized so some you may need, as with any Serde based deserializer, to explicitly account for known unknowns,
+i.e. in the case of KMIP vendors are permitted to extend the response TTLV arbitrarily at certain points which can
+be “ignored” by guiding Serde to deserialize the unknown bytes as just that: bytes.</p>
+<p>This crate does not try to be clone free or to support no_std scenarios, memory is allocated to serialize and
+deserialize into. In particular when deserializing bytes received from an untrusted source this could cause
+allocation of a large amount of memory at which point Rust will panic if the allocation fails. Rust is continually
+becoming more robust in such cases so it may be possible to improve this in future. For now, when deserializing you
+are strongly advised to use a <code>Config</code> object that specifies a maximum byte length to deserialize.</p>
+<p>If serialization or deserialization fails this crate tries to return sufficient contextual information to aid
+diagnosing where the problem in the TTLV byte stream is and why. Error reporting is a work in-progres and should get
+better as the crate matures.</p>
+</div></details><h2 id="reexports" class="section-header"><a href="#reexports">Re-exports</a></h2>
+<table><tr class="import-item"><td><code>pub use de::<a class="fn" href="de/fn.from_reader.html" title="fn krill_kmip_ttlv::de::from_reader">from_reader</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use de::<a class="fn" href="de/fn.from_slice.html" title="fn krill_kmip_ttlv::de::from_slice">from_slice</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use de::<a class="struct" href="de/struct.Config.html" title="struct krill_kmip_ttlv::de::Config">Config</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use ser::<a class="fn" href="ser/fn.to_vec.html" title="fn krill_kmip_ttlv::ser::to_vec">to_vec</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use ser::<a class="fn" href="ser/fn.to_writer.html" title="fn krill_kmip_ttlv::ser::to_writer">to_writer</a>;</code></td><td class="docblock-short"></td></tr></table><h2 id="modules" class="section-header"><a href="#modules">Modules</a></h2>
+<table><tr class="module-item"><td><a class="mod" href="de/index.html" title="krill_kmip_ttlv::de mod">de</a></td><td class="docblock-short"><p>Deserialize TTLV bytes into Rust data types.</p>
+</td></tr><tr class="module-item"><td><a class="mod" href="error/index.html" title="krill_kmip_ttlv::error mod">error</a></td><td class="docblock-short"><p>When serializing or deserializing TTLV data goes wrong.</p>
+</td></tr><tr class="module-item"><td><a class="mod" href="ser/index.html" title="krill_kmip_ttlv::ser mod">ser</a></td><td class="docblock-short"><p>Serialize a Rust data structure into TTLV data.</p>
+</td></tr></table></section><section id="search" class="content hidden"></section><div id="rustdoc-vars" data-root-path="../" data-current-crate="krill_kmip_ttlv" data-search-index-js="../search-index.js" data-search-js="../search.js"></div><script src="../main.js"></script></body></html>

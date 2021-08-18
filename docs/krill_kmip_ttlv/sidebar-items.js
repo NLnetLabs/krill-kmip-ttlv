@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["de","Deserialize TTLV bytes into Rust data types."],["error","When serializing or deserializing TTLV data goes wrong."],["ser","Serialize a Rust data structure into TTLV data."]]});
