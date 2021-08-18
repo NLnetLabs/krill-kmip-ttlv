@@ -1,3 +1,5 @@
+//! Deserialize TTLV bytes into Rust data types.
+
 use std::{
     cell::{RefCell, RefMut},
     cmp::Ordering,
@@ -110,7 +112,8 @@ where
         }
     }
 
-    // Warning: this will panic if it fails to allocate the requested amount of memory!
+    // Warning: this will panic if it fails to allocate the requested amount of memory, at least until try_reserve() is
+    // stabilized!
     buf.reserve(additional_len as usize);
     buf.resize(buf.capacity(), 0);
     reader.read_exact(&mut buf[8..]).map_err(Error::IoError)?;
