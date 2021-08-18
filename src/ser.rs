@@ -32,6 +32,15 @@ pub fn to_vec<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+pub fn to_writer<T, W>(value: &T, mut writer: W) -> Result<()>
+where
+    T: Serialize,
+    W: Write,
+{
+    let vec = to_vec(value)?;
+    writer.write_all(&vec).map_err(Error::IoError)
+}
+
 impl std::error::Error for Error {}
 
 impl serde::ser::Error for Error {
