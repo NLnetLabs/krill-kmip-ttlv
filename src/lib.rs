@@ -17,7 +17,7 @@
 //! below) you can serialize and deserialize them as follows:
 //!
 //! ```ignore
-//! use krill_kmip_ttlv::{Config, from_reader, to_vec};
+//! use krill_kmip_ttlv::{Config, from_slice, to_vec};
 //!
 //! // Serialize some struct variable (whose type is correctly
 //! // attributed) to bytes in TTLV format:
