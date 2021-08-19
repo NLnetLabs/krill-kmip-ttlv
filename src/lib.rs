@@ -13,6 +13,15 @@
 //!
 //! # Usage
 //!
+//! Add the following to your `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! krill-kmip-ttlv = "0.1.0"
+//! serde = "1.0.126"
+//! serde_derive = "1.0.126"
+//! ```
+//!
 //! Assuming that you have already defined your Rust types with the required Serde Derive attributes (more on this
 //! below) you can serialize and deserialize them as follows:
 //!

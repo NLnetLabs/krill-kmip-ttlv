@@ -207,6 +207,15 @@
 <span id="205">205</span>
 <span id="206">206</span>
 <span id="207">207</span>
+<span id="208">208</span>
+<span id="209">209</span>
+<span id="210">210</span>
+<span id="211">211</span>
+<span id="212">212</span>
+<span id="213">213</span>
+<span id="214">214</span>
+<span id="215">215</span>
+<span id="216">216</span>
 </pre><pre class="rust">
 <span class="doccomment">//! A crate to de/serialize Rust data types from/to bytes in the KMIP TTLV format.</span>
 <span class="doccomment">//!</span>
@@ -222,6 +231,15 @@
 <span class="doccomment">//! [KMIP TTLV data format]: https://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc262581260</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! # Usage</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Add the following to your `Cargo.toml`:</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! ```toml</span>
+<span class="doccomment">//! [dependencies]</span>
+<span class="doccomment">//! krill-kmip-ttlv = &quot;0.1.0&quot;</span>
+<span class="doccomment">//! serde = &quot;1.0.126&quot;</span>
+<span class="doccomment">//! serde_derive = &quot;1.0.126&quot;</span>
+<span class="doccomment">//! ```</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! Assuming that you have already defined your Rust types with the required Serde Derive attributes (more on this</span>
 <span class="doccomment">//! below) you can serialize and deserialize them as follows:</span>
