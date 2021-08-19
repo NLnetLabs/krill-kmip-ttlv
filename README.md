@@ -15,6 +15,10 @@
 
 This crate offers a **partial implementation** of KMIP v1.0 **TTLV** (de)serialization functionality for use primarily by the [Krill](https://nlnetlabs.nl/projects/rpki/krill/) project. The interface offered is based on the popular Rust [Serde](https://serde.rs/) (de)serialization framework for decorating arbitrary high level Rust "business object" structs with attributes that guide the (de)serialization process.
 
+### API Reference
+
+As this crate is not yet published to crates.io you cannot yet look at the rustdoc on docs.rs. A preview is available [here](https://nlnetlabs.github.io/krill-kmip-ttlv/krill_kmip_ttlv/index.html) however.
+
 ### Scope
 
 The primary responsibilities of this crate are handling the need to write the length _before_ knowing how long the _value_ will be, translating Rust types to/from TTLV types, guiding creation of correct request structures and offering useful diagnostic messages if response structures cannot be parsed.
