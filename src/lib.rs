@@ -54,7 +54,7 @@
 //! Think of a TTLV "Structure" item as a Rust struct and all other TTLV items as fields within that struct but, unlike
 //! Rust data types which have a string name, TTLV items are identified by a numeric "Tag".
 //!
-//! [Oasis Key Management Interoperability Protocol Specification Version 1.0]: https://docs.oasis-open.org/kmip/spec/v1.0/kmip-spec-1.0.html
+//! [Oasis Key Management Interoperability Protocol Specification Version 1.0]: https://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html
 //! [Section 9.1 TTLV Encoding]: https://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc262581260
 //!
 //! # Mapping names to tags
