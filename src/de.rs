@@ -518,6 +518,9 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     fn is_variant_applicable(&self, variant: &'static str) -> Result<bool> {
         // TODO: this is horrible code.
         if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| v.split_once("==")) {
+            let wanted_tag = wanted_tag.trim();
+            let wanted_val = wanted_val.trim();
+
             // Have we earlier seen a TTLV tag 'wanted_tag' and if so was its value 'wanted_val'? If so then this is
             // the variant name to announce to Serde that we are deserializing into.
             if wanted_tag == "type" {
@@ -542,6 +545,9 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
                 }
             }
         } else if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| v.split_once(">=")) {
+            let wanted_tag = wanted_tag.trim();
+            let wanted_val = wanted_val.trim();
+
             if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
                 if ItemTag::from_str(seen_enum_val)?.deref() >= ItemTag::from_str(wanted_val)?.deref() {
                     return Ok(true);
