@@ -86,7 +86,7 @@ pub enum ItemType {
     Structure = 0x01,
     Integer = 0x02,
     LongInteger = 0x03,
-    // BigInteger = 0x04,
+    BigInteger = 0x04,
     Enumeration = 0x05,
     Boolean = 0x06,
     TextString = 0x07,
@@ -101,6 +101,7 @@ impl std::fmt::Display for ItemType {
             ItemType::Structure => f.write_str("Structure (0x01)"),
             ItemType::Integer => f.write_str("Integer (0x02)"),
             ItemType::LongInteger => f.write_str("LongInteger (0x03)"),
+            ItemType::BigInteger => f.write_str("BigInteger (0x04)"),
             ItemType::Enumeration => f.write_str("Enumeration (0x05)"),
             ItemType::Boolean => f.write_str("Boolean (0x06)"),
             ItemType::TextString => f.write_str("TextString (0x07)"),
@@ -118,7 +119,7 @@ impl TryFrom<u8> for ItemType {
             0x01 => Ok(ItemType::Structure),
             0x02 => Ok(ItemType::Integer),
             0x03 => Ok(ItemType::LongInteger),
-            // 0x04 => Ok(ItemType::BigInteger),
+            0x04 => Ok(ItemType::BigInteger),
             0x05 => Ok(ItemType::Enumeration),
             0x06 => Ok(ItemType::Boolean),
             0x07 => Ok(ItemType::TextString),
@@ -280,37 +281,73 @@ macro_rules! define_fixed_value_length_serializable_ttlv_type {
     };
 }
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value
-// ==================================
+// KMIP v1.0 spec: 9.1.1.4 Item Value: Integer
+// ===========================================
 // "Integers are encoded as four-byte long (32 bit) binary signed numbers in 2's complement notation,
 //  transmitted big-endian."
 define_fixed_value_length_serializable_ttlv_type!(TtlvInteger, ItemType::Integer, i32, 4);
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value
-// ==================================
+// KMIP v1.0 spec: 9.1.1.4 Item Value: Long Integer
+// ================================================
 // "Long Integers are encoded as eight-byte long (64 bit) binary signed numbers in 2's complement
 //  notation, transmitted big-endian."
 define_fixed_value_length_serializable_ttlv_type!(TtlvLongInteger, ItemType::LongInteger, i64, 8);
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value
-// ==================================
+// KMIP v1.0 spec: 9.1.1.4 Item Value: Big Integer
+// ===============================================
 // "Big Integers are encoded as a sequence of eight-bit bytes, in two's complement notation,
 //  transmitted big-endian. If the length of the sequence is not a multiple of eight bytes, then Big
 //  Integers SHALL be padded with the minimal number of leading sign-extended bytes to make the
 //  length a multiple of eight bytes. These padding bytes are part of the Item Value and SHALL be
 //  counted in the Item Length."
-// #[derive(Clone, Debug)]
-// struct BigInteger(Vec<u8>);
+#[derive(Clone, Debug)]
+pub struct TtlvBigInteger(pub Vec<u8>);
+impl Deref for TtlvBigInteger {
+    type Target = Vec<u8>;
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value
-// ==================================
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl SerializableTtlvType for TtlvBigInteger {
+    const TTLV_TYPE: ItemType = ItemType::BigInteger;
+
+    fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
+        let mut dst = vec![0; value_len as usize];
+        src.read_exact(&mut dst)?;
+        Ok(TtlvBigInteger(dst))
+    }
+
+    fn write_length_and_value<T: Write>(&self, dst: &mut T) -> Result<u32> {
+        let v = self.0.as_slice();
+        let v_len = v.len() as u32;
+        let num_pad_bytes = Self::calc_pad_bytes(v_len);
+        let v_len = v_len + num_pad_bytes;
+        dst.write_all(&v_len.to_be_bytes())?; // Write L_ength
+                                              // Write pad bytes out as leading sign extending bytes, i.e. if the sign is positive then pad with zeros
+                                              // otherwise pad with ones.
+        let pad_byte = if v_len > 0 && v[0] & 0b1000_0000 == 0b1000_0000 {
+            0b1111_1111
+        } else {
+            0b0000_0000
+        };
+        for _ in 1..=num_pad_bytes {
+            dst.write_all(&[pad_byte])?;
+        }
+        dst.write_all(v)?; // Write V_alue
+        Ok(v_len)
+    }
+}
+
+// KMIP v1.0 spec: 9.1.1.4 Item Value: Enumeration
+// ===============================================
 // "Enumerations are encoded as four-byte long (32 bit) binary unsigned numbers transmitted big-
 //  endian. Extensions, which are permitted, but are not defined in this specification, contain the
 //  value 8 hex in the first nibble of the first byte."
 define_fixed_value_length_serializable_ttlv_type!(TtlvEnumeration, ItemType::Enumeration, u32, 4);
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value
-// ==================================
+// KMIP v1.0 spec: 9.1.1.4 Item Value: Boolean
+// ===========================================
 // "Booleans are encoded as an eight-byte value that SHALL either contain the hex value
 //  0000000000000000, indicating the Boolean value False, or the hex value 0000000000000001,
 //  transmitted big-endian, indicating the Boolean value True."
@@ -363,8 +400,8 @@ impl SerializableTtlvType for TtlvBoolean {
     }
 }
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value
-// ==================================
+// KMIP v1.0 spec: 9.1.1.4 Item Value: Text String
+// ===============================================
 // "Text Strings are sequences of bytes that encode character values according to the UTF-8
 //  encoding standard. There SHALL NOT be null-termination at the end of such strings."
 // TextString cannot be implemented using the define_fixed_value_length_serializable_ttlv_type! macro because it has a
@@ -402,8 +439,8 @@ impl SerializableTtlvType for TtlvTextString {
     }
 }
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value
-// ==================================
+// KMIP v1.0 spec: 9.1.1.4 Item Value: Byte String
+// ===============================================
 // "Byte Strings are sequences of bytes containing individual unspecified eight-bit binary values, and are interpreted
 //  in the same sequence order."
 // ByteString cannot be implemented using the define_fixed_value_length_serializable_ttlv_type! macro because it has a
@@ -436,15 +473,15 @@ impl SerializableTtlvType for TtlvByteString {
     }
 }
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value
-// ==================================
+// KMIP v1.0 spec: 9.1.1.4 Item Value: Date Time
+// =============================================
 // "Date-Time values are POSIX Time values encoded as Long Integers. POSIX Time, as described
 //  in IEEE Standard 1003.1 [IEEE1003-1], is the number of seconds since the Epoch (1970 Jan 1,
 //  00:00:00 UTC), not counting leap seconds."
 define_fixed_value_length_serializable_ttlv_type!(TtlvDateTime, ItemType::DateTime, i64, 8);
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value
-// ==================================
+// KMIP v1.0 spec: 9.1.1.4 Item Value: Interval
+// ============================================
 // "Intervals are encoded as four-byte long (32 bit) binary unsigned numbers, transmitted big-endian.
 //  They have a resolution of one second."
 #[allow(dead_code)]
@@ -456,7 +493,7 @@ mod test {
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne};
 
-    use std::{convert::TryInto, str::FromStr};
+    use std::{convert::TryInto, io::Cursor, str::FromStr};
 
     use crate::types::{ItemTag, ItemType, SerializableTtlvType};
 
@@ -531,6 +568,7 @@ mod test {
         assert!(matches!(ItemType::from_str("0x01").unwrap(), ItemType::Structure));
         assert!(matches!(ItemType::from_str("0x02").unwrap(), ItemType::Integer));
         assert!(matches!(ItemType::from_str("0x03").unwrap(), ItemType::LongInteger));
+        assert!(matches!(ItemType::from_str("0x04").unwrap(), ItemType::BigInteger));
         assert!(matches!(ItemType::from_str("0x05").unwrap(), ItemType::Enumeration));
         assert!(matches!(ItemType::from_str("0x06").unwrap(), ItemType::Boolean));
         assert!(matches!(ItemType::from_str("0x07").unwrap(), ItemType::TextString));
@@ -540,84 +578,136 @@ mod test {
         assert_eq!(ItemType::from_str("0x01").unwrap(), ItemType::try_from(0x01).unwrap());
         assert_eq!(ItemType::from_str("0x02").unwrap(), ItemType::try_from(0x02).unwrap());
         assert_eq!(ItemType::from_str("0x03").unwrap(), ItemType::try_from(0x03).unwrap());
+        assert_eq!(ItemType::from_str("0x04").unwrap(), ItemType::try_from(0x04).unwrap());
         assert_eq!(ItemType::from_str("0x05").unwrap(), ItemType::try_from(0x05).unwrap());
         assert_eq!(ItemType::from_str("0x06").unwrap(), ItemType::try_from(0x06).unwrap());
         assert_eq!(ItemType::from_str("0x07").unwrap(), ItemType::try_from(0x07).unwrap());
         assert_eq!(ItemType::from_str("0x08").unwrap(), ItemType::try_from(0x08).unwrap());
         assert_eq!(ItemType::from_str("0x09").unwrap(), ItemType::try_from(0x09).unwrap());
 
-        // Big Integer is not yet implemented
-        assert!(ItemType::from_str("0x04").is_err());
-        // assert_eq!(ItemType::from_str("0x04").unwrap(), ItemType::try_from(0x04).unwrap());
-
         // Interval is not yet implemented
         assert!(ItemType::from_str("0x0A").is_err());
         // assert_eq!(ItemType::from_str("0x02").unwrap(), ItemType::try_from(0x0A).unwrap());
     }
 
-    #[test]
-    fn test_spec_value_type_examples() {
-        fn example(s: &str) -> Vec<u8> {
-            // strip out the example fake item tag, spacing and separators
-            hex::decode(s.replace("42 00 20 | ", "").replace(" ", "").replace("|", "")).unwrap()
-        }
+    fn spec_ttlv_to_vec_tlv(s: &str) -> Vec<u8> {
+        // strip out the example fake item tag, spacing and separators
+        hex::decode(s.replace("42 00 20 | ", "").replace(" ", "").replace("|", "")).unwrap()
+    }
 
+    #[test]
+    fn test_spec_ttlv_integer() {
         // Quoting: http://docs.oasis-open.org/kmip/spec/v1.0/cs01/kmip-spec-1.0-cs-01.pdf 9.1.2 Examples
         //   These examples are assumed to be encoding a Protocol Object whose tag is 420020. The examples are
         //   shown as a sequence of bytes in hexadecimal notation:
         //
         //   - An Integer containing the decimal value 8:
         //     42 00 20 | 02 | 00 00 00 04 | 00 00 00 08 00 00 00 00
-        let mut actual = Vec::new();
-        let expected = example("42 00 20 | 02 | 00 00 00 04 | 00 00 00 08 00 00 00 00");
-        TtlvInteger(8).write(&mut actual).unwrap();
-        assert_eq!(expected, actual);
+        let spec_tlv_bytes = spec_ttlv_to_vec_tlv("42 00 20 | 02 | 00 00 00 04 | 00 00 00 08 00 00 00 00");
 
+        // Test serialization
+        let mut serialized_tlv_bytes = Vec::new();
+        assert!(TtlvInteger(8).write(&mut serialized_tlv_bytes).is_ok());
+        assert_eq!(spec_tlv_bytes, serialized_tlv_bytes);
+
+        // Test deserialization
+        let mut readable_spec_lv_bytes = Cursor::new(&spec_tlv_bytes[1..]);
+        let v = TtlvInteger::read(&mut readable_spec_lv_bytes);
+        assert!(v.is_ok());
+        assert_eq!(8, *(v.unwrap()));
+    }
+
+    #[test]
+    fn test_spec_ttlv_long_integer() {
         //   - A Long Integer containing the decimal value 123456789000000000:
         //     42 00 20 | 03 | 00 00 00 08 | 01 B6 9B 4B A5 74 92 00
-        let mut actual = Vec::new();
-        let expected = example("42 00 20 | 03 | 00 00 00 08 | 01 B6 9B 4B A5 74 92 00");
-        TtlvLongInteger(123456789000000000).write(&mut actual).unwrap();
-        assert_eq!(expected, actual);
+        let spec_tlv_bytes = spec_ttlv_to_vec_tlv("42 00 20 | 03 | 00 00 00 08 | 01 B6 9B 4B A5 74 92 00");
 
+        // Test serialization
+        let mut serialized_tlv_bytes = Vec::new();
+        assert!(TtlvLongInteger(123456789000000000)
+            .write(&mut serialized_tlv_bytes)
+            .is_ok());
+        assert_eq!(spec_tlv_bytes, serialized_tlv_bytes);
+
+        // Test deserialization
+        let mut readable_spec_lv_bytes = Cursor::new(&spec_tlv_bytes[1..]);
+        let v = TtlvLongInteger::read(&mut readable_spec_lv_bytes);
+        assert!(v.is_ok());
+        assert_eq!(123456789000000000, *(v.unwrap()));
+    }
+
+    #[test]
+    fn test_spec_ttlv_big_integer() {
         //   - A Big Integer containing the decimal value 1234567890000000000000000000:
         //     42 00 20 | 04 | 00 00 00 10 | 00 00 00 00 03 FD 35 EB 6B C2 DF 46 18 08
         //     00 00
-        // NOT IMPLEMENTED YET
+        let spec_tlv_bytes =
+            spec_ttlv_to_vec_tlv("42 00 20 | 04 | 00 00 00 10 | 00 00 00 00 03 FD 35 EB 6B C2 DF 46 18 08 00 00");
+        let big_int = num_bigint::BigInt::parse_bytes(b"1234567890000000000000000000", 10).unwrap();
 
+        // Test serialization
+        let mut serialized_tlv_bytes = Vec::new();
+        assert!(TtlvBigInteger(big_int.to_signed_bytes_be())
+            .write(&mut serialized_tlv_bytes)
+            .is_ok());
+        assert_eq!(spec_tlv_bytes, serialized_tlv_bytes);
+
+        // Test deserialization
+        let mut readable_spec_lv_bytes = Cursor::new(&spec_tlv_bytes[1..]);
+        let v = TtlvBigInteger::read(&mut readable_spec_lv_bytes);
+        assert!(v.is_ok());
+        assert_eq!(big_int, num_bigint::BigInt::from_signed_bytes_be(&(*(v.unwrap()))));
+    }
+
+    #[test]
+    fn test_spec_ttlv_enumeration() {
         //   - An Enumeration with value 255:
         //     42 00 20 | 05 | 00 00 00 04 | 00 00 00 FF 00 00 00 00
         let mut actual = Vec::new();
-        let expected = example("42 00 20 | 05 | 00 00 00 04 | 00 00 00 FF 00 00 00 00");
+        let expected = spec_ttlv_to_vec_tlv("42 00 20 | 05 | 00 00 00 04 | 00 00 00 FF 00 00 00 00");
         TtlvEnumeration(255).write(&mut actual).unwrap();
         assert_eq!(expected, actual);
+    }
 
+    #[test]
+    fn test_spec_ttlv_boolean() {
         //   - A Boolean with the value True:
         //     42 00 20 | 06 | 00 00 00 08 | 00 00 00 00 00 00 00 01
         let mut actual = Vec::new();
-        let expected = example("42 00 20 | 06 | 00 00 00 08 | 00 00 00 00 00 00 00 01");
+        let expected = spec_ttlv_to_vec_tlv("42 00 20 | 06 | 00 00 00 08 | 00 00 00 00 00 00 00 01");
         TtlvBoolean(true).write(&mut actual).unwrap();
         assert_eq!(expected, actual);
+    }
 
+    #[test]
+    fn test_spec_ttlv_text_string() {
         //   - A Text String with the value "Hello World":
         //     42 00 20 | 07 | 00 00 00 0B | 48 65 6C 6C 6F 20 57 6F 72 6C 64 00 00 00
         //     00 00
         let mut actual = Vec::new();
-        let expected = example("42 00 20 | 07 | 00 00 00 0B | 48 65 6C 6C 6F 20 57 6F 72 6C 64 00 00 00 00 00");
+        let expected =
+            spec_ttlv_to_vec_tlv("42 00 20 | 07 | 00 00 00 0B | 48 65 6C 6C 6F 20 57 6F 72 6C 64 00 00 00 00 00");
         TtlvTextString("Hello World".to_string()).write(&mut actual).unwrap();
         assert_eq!(expected, actual);
+    }
 
+    #[test]
+    fn test_spec_ttlv_byte_string() {
         //   - A Byte String with the value { 0x01, 0x02, 0x03 }:
         //     42 00 20 | 08 | 00 00 00 03 | 01 02 03 00 00 00 00 00
         let mut actual = Vec::new();
-        let expected = example("42 00 20 | 08 | 00 00 00 03 | 01 02 03 00 00 00 00 00");
+        let expected = spec_ttlv_to_vec_tlv("42 00 20 | 08 | 00 00 00 03 | 01 02 03 00 00 00 00 00");
         TtlvByteString(vec![0x01u8, 0x02u8, 0x03u8]).write(&mut actual).unwrap();
         assert_eq!(expected, actual);
+    }
 
+    #[test]
+    fn test_spec_ttlv_date_time() {
         //   - A Date-Time, containing the value for Friday, March 14, 2008, 11:56:40 GMT:
         //     42 00 20 | 09 | 00 00 00 08 | 00 00 00 00 47 DA 67 F8
         let mut actual = Vec::new();
-        let expected = example("42 00 20 | 09 | 00 00 00 08 | 00 00 00 00 47 DA 67 F8");
+        let expected = spec_ttlv_to_vec_tlv("42 00 20 | 09 | 00 00 00 08 | 00 00 00 00 47 DA 67 F8");
         let dt = chrono::Utc
             .datetime_from_str("Friday, March 14, 2008, 11:56:40 GMT", "%A, %B %d, %Y, %H:%M:%S GMT")
             .unwrap();
@@ -626,15 +716,24 @@ mod test {
         assert_eq!(expected_i64, dt_i64);
         TtlvDateTime(dt_i64).write(&mut actual).unwrap();
         assert_eq!(expected, actual);
+    }
 
+    #[test]
+    #[should_panic]
+    fn test_spec_ttlv_interval() {
         //   - An Interval, containing the value for 10 days:
         //     42 00 20 | 0A | 00 00 00 04 | 00 0D 2F 00 00 00 00 00
         // NOT IMPLEMENTED YET
+        todo!()
+    }
 
+    #[test]
+    #[should_panic]
+    fn test_spec_ttlv_structure() {
         //   - A Structure containing an Enumeration, value 254, followed by an Integer, value 255, having tags
         //   - 420004 and 420005 respectively:
         //     42 00 20 | 01 | 00 00 00 20 | 42 00 04 | 05 | 00 00 00 04 | 00 00 00 FE
         //     00 00 00 00 | 42 00 05 | 02 | 00 00 00 04 | 00 00 00 FF 00 00 00 00
-        // NOT IN SCOPE FOR THIS MODULE
+        panic!("NOT IN SCOPE FOR THIS MODULE");
     }
 }

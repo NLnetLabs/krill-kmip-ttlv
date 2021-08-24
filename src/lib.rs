@@ -46,7 +46,7 @@
 //!     1.0] (aka KMIP) in [Section 9.1 TTLV Encoding].
 //!   - The byte representation of a TTLV item consists of a 3 byte tag, a 1 byte type, a 4 byte length followed by zero
 //!     or more "Value" bytes.
-//!   - Leaf nodes in the tree are TTLV items whose "Type" denotes them to be a primitive value of some kind (e.g. 
+//!   - Leaf nodes in the tree are TTLV items whose "Type" denotes them to be a primitive value of some kind (e.g.
 //!     Integer, Boolean, etc) and whose "Value" is a single primitive value in serialized form, followed by any
 //!     required padding bytes.
 //!   - All other tree nodes are "Structure" TTLV items whose value consists of zero or more TTLV items.
@@ -59,7 +59,7 @@
 //!
 //! # Mapping names to tags
 //!
-//! Rust identifies structs and struct fields by name but TTLV identifies items by numeric "Tag". We must therefore 
+//! Rust identifies structs and struct fields by name but TTLV identifies items by numeric "Tag". We must therefore
 //! provide a way to map from name to tag and vice versa. As this crate is Serde (Derive) based we can take advantage of
 //! the [Serde Derive atribute] `#[serde(rename = "...")]` to handle this for us:
 //!
@@ -104,7 +104,9 @@
 //! `i8`, `i16`, `f32`, `f64`, `char`, `str`, map, `&[u8]`, `()`.
 //! `char`,
 //!
-//! - The following TTLV types **CANNOT** _yet_ be (de)serialized: Big Integer (0x04), Interval (0x0A).
+//! - The following TTLV types **CANNOT** _yet_ be serialized to TTLV: Big Integer (0x04), Interval (0x0A).
+//!
+//! - The following TTLV types **CANNOT** _yet_ be deserialized from TTLV: Interval (0x0A).
 //!
 //! - The following Rust types **CANNOT** be deserialized as this crate is opinionated and prefers to
 //! deserialize only into named fields, not nameless groups of values: unit struct, tuple struct, tuple.
@@ -163,13 +165,20 @@
 //! | Structure (0x01)    | `SomeStruct { .. }`, `SomeStruct( .. )`, tuple variant | `SomeStruct { .. }` |
 //! | Integer (0x02)      | `i8`, `i16`, `i32`  | `i32`               |
 //! | Long Integer (0x03) | `i64`               | `i64`               |
-//! | Big Integer (0x04)  | **UNSUPPORTED**     | **UNSUPPORTED**     |
+//! | Big Integer (0x04)  | **UNSUPPORTED**     | `Vec<u8>`           |
 //! | Enumeration (0x05)  | `u32`               | See above           |
 //! | Boolean (0x06)      | `bool`              | `bool`              |
 //! | Text String (0x07)  | `str``              | `String`            |
 //! | Byte String (0x08)  | `&[u8]`             | `Vec<u8>`           |
 //! | Date Time (0x09)    | `u64`               | `i64`               |
 //! | Interval (0x0A)     | **UNSUPPORTED**     | **UNSUPPORTED**     |
+//!
+//! # Big integers
+//!
+//! TTLV Big Integer values can be deserialized to a `Vec<u8>` in their raw byte format. Using a crate like
+//! `num_bigint` you can work with these byte sequences as if they were normal Rust integers. For example, To convert
+//! from a `Vec<u8>` obtained from a TTLV Big Integer to a `num_bigint::BigInt` use the
+//! `num_bigint::BigInt::from_signed_bytes_be` function.
 //!
 //! # Examples
 //!

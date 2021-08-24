@@ -19,7 +19,7 @@ use serde::{
 use crate::{
     error::Error,
     error::Result,
-    types::{ItemTag, ItemType, TtlvByteString},
+    types::{ItemTag, ItemType, TtlvBigInteger, TtlvByteString},
     types::{
         SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvTextString,
     },
@@ -150,6 +150,7 @@ pub fn to_string(bytes: &[u8]) -> String {
             ItemType::Structure   => { len = Some(TtlvDeserializer::read_length(cursor)? as u64); EMPTY_STRING }
             ItemType::Integer     => { format!(" {data:#08X} ({data})", data = TtlvInteger::read(cursor)?.deref()) }
             ItemType::LongInteger => { format!(" {data:#08X} ({data})", data = TtlvLongInteger::read(cursor)?.deref()) }
+            ItemType::BigInteger  => { format!(" {data}", data = hex::encode_upper(&TtlvBigInteger::read(cursor)?.deref())) }
             ItemType::Enumeration => { format!(" {data:#08X} ({data})", data = TtlvEnumeration::read(cursor)?.deref()) }
             ItemType::Boolean     => { format!(" {data}", data = TtlvBoolean::read(cursor)?.deref()) }
             ItemType::TextString  => { format!(" {data}", data = TtlvTextString::read(cursor)?.deref()) }
