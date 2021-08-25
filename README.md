@@ -2,9 +2,6 @@
 
 # kmip-ttlv - A library for (de)serializing KMIP TTLV
 
-[Krill](https://nlnetlabs.nl/projects/rpki/krill/):
-> A free, open source RPKI Certificate Authority that lets you run delegated RPKI under one or multiple Regional Internet Registries (RIRs).
-
 [KMIP](http://docs.oasis-open.org/kmip/spec/v1.0/kmip-spec-1.0.html):
 > The OASIS Key Management Interoperability Protocol specifications which define message formats for the manipulation of cryptographic material on a key management server.
 
@@ -14,10 +11,6 @@
 ### Welcome
 
 This crate offers a **partial implementation** of KMIP v1.0 **TTLV** (de)serialization functionality for use primarily by the [Krill](https://nlnetlabs.nl/projects/rpki/krill/) project. The interface offered is based on the popular Rust [Serde](https://serde.rs/) (de)serialization framework for decorating arbitrary high level Rust "business object" structs with attributes that guide the (de)serialization process.
-
-### API Reference
-
-As this crate is not yet published to crates.io you cannot yet look at the rustdoc on docs.rs. A preview is available [here](https://nlnetlabs.github.io/kmip-ttlv/kmip_ttlv/index.html) however.
 
 ### Scope
 
@@ -38,7 +31,7 @@ Not all TTLV types are supported:
 | Structure | 0x01 | ✔️ |
 | Integer | 0x02 | ✔️ |
 | Long Integer | 0x03 | ✔️ |
-| Big Integer | 0x04 | |
+| Big Integer | 0x04 | ✔️ |
 | Enumeration | 0x05 | ✔️ |
 | Boolean | 0x06 | ✔️ |
 | Text String | 0x07 | ✔️ |
@@ -111,13 +104,3 @@ Likewise rather than process and/or index into an arbitrary sequence of TTLV res
 ### Re-use of existing metadata
 
 The current approach makes heavy use of `#[serde(rename = "0xNNNNNN")]` to inform the (de)serializer of the TTLV tag that should be read from or written to the data stream for the current type, and infers the TTLV type to serialize to based on the Rust type being serialized. In certain special cases the Serde name is further (ab)used by including additional hints in the name for use by the deserializer.
-
-### Alternatives considered
-
-The Krill KMIP prototype work was based on the Visa [ttlv](https://github.com/visa/ttlv) and [kmip](https://github.com/visa/kmip) GitHub projects but these will not used beyond the prototype as they are very low level, quite new, not available on crates.io, and lacking a lot of the KMIP business types and request/response definitions that Krill needs.
-
-Initially I avoided writing a Serde (de)serializer as at first glance it seems like overkill and/or complex. However, prototyped approaches based on custom traits or use of existing binary serialization and/or TLV crates led to complex and/or magic code and/or messy complicated implementation of non-standard trait interfaces, or didn't offer the kind of interface I wanted consumers to interact with.
-
-Serde is good at enabling business types to remain separate from and flexibly coupled to the underlying serialized form and is equally powerful and elegant at both deserialization AND serialization, while alternative crates tended to be better and stronger at one or the other.
-
-Some of the crates evaluated included (in alphabetic order) [deku](https://lib.rs/crates/deku), [nom](https://lib.rs/crates/nom), [simple_parse](https://lib.rs/crates/simple_parse) and [simple-tlv](https://lib.rs/crates/simple-tlv) along with helper crates for handling bytes or type conversions or adding useful derives automatically. The current version has very few dependencies, the main one being serde.
