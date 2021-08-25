@@ -1,3 +1,0 @@
-(function() {var implementors = {};
-implementors["kmip_ttlv"] = [{"text":"impl <a class=\"trait\" href=\"https://docs.rs/serde/1.0.126/serde/ser/trait.SerializeTupleVariant.html\" title=\"trait serde::ser::SerializeTupleVariant\">SerializeTupleVariant</a> for &amp;mut <a class=\"struct\" href=\"kmip_ttlv/ser/struct.TtlvSerializer.html\" title=\"struct kmip_ttlv::ser::TtlvSerializer\">TtlvSerializer</a>","synthetic":false,"types":["kmip_ttlv::ser::TtlvSerializer"]}];
-if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
