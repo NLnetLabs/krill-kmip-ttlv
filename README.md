@@ -1,6 +1,6 @@
-[![CI](https://github.com/NLnetLabs/krill-kmip-ttlv/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NLnetLabs/krill-kmip-ttlv/actions/workflows/ci.yml)
+[![CI](https://github.com/NLnetLabs/kmip-ttlv/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NLnetLabs/kmip-ttlv/actions/workflows/ci.yml)
 
-# krill-kmip-ttlv - A library for (de)serializing KMIP TTLV
+# kmip-ttlv - A library for (de)serializing KMIP TTLV
 
 [Krill](https://nlnetlabs.nl/projects/rpki/krill/):
 > A free, open source RPKI Certificate Authority that lets you run delegated RPKI under one or multiple Regional Internet Registries (RIRs).
@@ -17,7 +17,7 @@ This crate offers a **partial implementation** of KMIP v1.0 **TTLV** (de)seriali
 
 ### API Reference
 
-As this crate is not yet published to crates.io you cannot yet look at the rustdoc on docs.rs. A preview is available [here](https://nlnetlabs.github.io/krill-kmip-ttlv/krill_kmip_ttlv/index.html) however.
+As this crate is not yet published to crates.io you cannot yet look at the rustdoc on docs.rs. A preview is available [here](https://nlnetlabs.github.io/kmip-ttlv/kmip_ttlv/index.html) however.
 
 ### Scope
 
@@ -29,7 +29,7 @@ Note: The scope is limited to TTLV-over-TLS. Support for HTTPS instead of TLS an
 
 ### Status
 
-This is a work-in-progress. The interface offered by this library is expected to change and **no guarantee** of interface stability is made at this time. The intention is publish this crate in the near future to https://crates.io/ to be depended on by Krill like any other Rust crate dependency. See the https://github.com/NLnetLabs/krill-kmip-protocol/ repository for an implementation of a KMIP TTLV client that uses this crate as the core building block and also includes a sample TTLV over TLS client.
+This is a work-in-progress. The interface offered by this library is expected to change and **no guarantee** of interface stability is made at this time. The intention is publish this crate in the near future to https://crates.io/ to be depended on by Krill like any other Rust crate dependency. See the https://github.com/NLnetLabs/kmip-protocol/ repository for an implementation of a KMIP TTLV client that uses this crate as the core building block and also includes a sample TTLV over TLS client.
 
 Not all TTLV types are supported:
 

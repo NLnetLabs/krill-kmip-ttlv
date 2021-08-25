@@ -1,6 +1,6 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="A crate to de/serialize Rust data types from/to bytes in the KMIP TTLV format."><meta name="keywords" content="rust, rustlang, rust-lang, krill_kmip_ttlv"><title>krill_kmip_ttlv - Rust</title><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../ayu.css" disabled ><script id="default-settings"></script><script src="../storage.js"></script><script src="../crates.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="A crate to de/serialize Rust data types from/to bytes in the KMIP TTLV format."><meta name="keywords" content="rust, rustlang, rust-lang, kmip_ttlv"><title>kmip_ttlv - Rust</title><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../ayu.css" disabled ><script id="default-settings"></script><script src="../storage.js"></script><script src="../crates.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../favicon.svg">
 <link rel="alternate icon" type="image/png" href="../favicon-16x16.png">
-<link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../down-arrow.svg");}</style></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu" role="button">&#9776;</div><a href='../krill_kmip_ttlv/index.html'><div class='logo-container rust-logo'><img src='../rust-logo.png' alt='logo'></div></a><h2 class="location">Crate krill_kmip_ttlv</h2><div class="block version"><p>Version 0.1.0-dev</p></div><div class="sidebar-elems"><a id="all-types" href="all.html"><p>See all krill_kmip_ttlv's items</p></a><div class="block items"><ul><li><a href="#modules">Modules</a></li></ul></div><div id="sidebar-vars" data-name="krill_kmip_ttlv" data-ty="mod" data-relpath=""></div><script defer src="sidebar-items.js"></script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img src="../brush.svg" width="18" height="18" alt="Pick another theme!"></button><div id="theme-choices" role="menu"></div></div><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../settings.html" title="settings"><img src="../wheel.svg" width="18" height="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">krill_kmip_ttlv</a><button id="copy-path" onclick="copy_path(this)" title="copy path"><img src="../clipboard.svg" width="19" height="18" alt="Copy item import" title="Copy item import to clipboard"></button></span><span class="out-of-band"><span id="render-detail"><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span><a class="srclink" href="../src/krill_kmip_ttlv/lib.rs.html#1-216" title="goto source code">[src]</a></span></h1><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>A crate to de/serialize Rust data types from/to bytes in the KMIP TTLV format.</p>
+<link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../down-arrow.svg");}</style></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu" role="button">&#9776;</div><a href='../kmip_ttlv/index.html'><div class='logo-container rust-logo'><img src='../rust-logo.png' alt='logo'></div></a><h2 class="location">Crate kmip_ttlv</h2><div class="block version"><p>Version 0.1.0-dev</p></div><div class="sidebar-elems"><a id="all-types" href="all.html"><p>See all kmip_ttlv's items</p></a><div class="block items"><ul><li><a href="#modules">Modules</a></li></ul></div><div id="sidebar-vars" data-name="kmip_ttlv" data-ty="mod" data-relpath=""></div><script defer src="sidebar-items.js"></script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img src="../brush.svg" width="18" height="18" alt="Pick another theme!"></button><div id="theme-choices" role="menu"></div></div><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../settings.html" title="settings"><img src="../wheel.svg" width="18" height="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">kmip_ttlv</a><button id="copy-path" onclick="copy_path(this)" title="copy path"><img src="../clipboard.svg" width="19" height="18" alt="Copy item import" title="Copy item import to clipboard"></button></span><span class="out-of-band"><span id="render-detail"><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span><a class="srclink" href="../src/kmip_ttlv/lib.rs.html#1-225" title="goto source code">[src]</a></span></h1><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>A crate to de/serialize Rust data types from/to bytes in the KMIP TTLV format.</p>
 <h1 id="serde" class="section-header"><a href="#serde">Serde</a></h1>
 <p>This crate implements the <a href="https://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc262581260">KMIP TTLV data format</a> using <a href="https://serde.rs/">Serde</a>,<em>“a framework for <strong>ser</strong>ializing and
 <strong>de</strong>serializing Rust data structures efficiently and generically”</em> and further assumes that you are using code
@@ -9,7 +9,7 @@ advised.</p>
 <h1 id="usage" class="section-header"><a href="#usage">Usage</a></h1>
 <p>Add the following to your <code>Cargo.toml</code>:</p>
 <pre><code class="language-toml">[dependencies]
-krill-kmip-ttlv = &quot;0.1.0&quot;
+kmip-ttlv = &quot;0.1.0&quot;
 serde = &quot;1.0.126&quot;
 serde_derive = &quot;1.0.126&quot;
 </code></pre>
@@ -17,7 +17,7 @@ serde_derive = &quot;1.0.126&quot;
 below) you can serialize and deserialize them as follows:</p>
 
 <div class='information'><div class='tooltip ignore'>ⓘ</div></div><div class="example-wrap"><pre class="rust rust-example-rendered ignore">
-<span class="kw">use</span> <span class="ident">krill_kmip_ttlv</span>::{<span class="ident">Config</span>, <span class="ident">from_slice</span>, <span class="ident">to_vec</span>};
+<span class="kw">use</span> <span class="ident">kmip_ttlv</span>::{<span class="ident">Config</span>, <span class="ident">from_slice</span>, <span class="ident">to_vec</span>};
 
 <span class="comment">// Serialize some struct variable (whose type is correctly</span>
 <span class="comment">// attributed) to bytes in TTLV format:</span>
@@ -33,7 +33,7 @@ below) you can serialize and deserialize them as follows:</p>
 1.0</a> (aka KMIP) in <a href="https://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc262581260">Section 9.1 TTLV Encoding</a>.</li>
 <li>The byte representation of a TTLV item consists of a 3 byte tag, a 1 byte type, a 4 byte length followed by zero
 or more “Value” bytes.</li>
-<li>Leaf nodes in the tree are TTLV items whose “Type” denotes them to be a primitive value of some kind (e.g. 
+<li>Leaf nodes in the tree are TTLV items whose “Type” denotes them to be a primitive value of some kind (e.g.
 Integer, Boolean, etc) and whose “Value” is a single primitive value in serialized form, followed by any
 required padding bytes.</li>
 <li>All other tree nodes are “Structure” TTLV items whose value consists of zero or more TTLV items.</li>
@@ -41,7 +41,7 @@ required padding bytes.</li>
 <p>Think of a TTLV “Structure” item as a Rust struct and all other TTLV items as fields within that struct but, unlike
 Rust data types which have a string name, TTLV items are identified by a numeric “Tag”.</p>
 <h1 id="mapping-names-to-tags" class="section-header"><a href="#mapping-names-to-tags">Mapping names to tags</a></h1>
-<p>Rust identifies structs and struct fields by name but TTLV identifies items by numeric “Tag”. We must therefore 
+<p>Rust identifies structs and struct fields by name but TTLV identifies items by numeric “Tag”. We must therefore
 provide a way to map from name to tag and vice versa. As this crate is Serde (Derive) based we can take advantage of
 the [Serde Derive atribute] <code>#[serde(rename = &quot;...&quot;)]</code> to handle this for us:</p>
 
@@ -52,7 +52,7 @@ the [Serde Derive atribute] <code>#[serde(rename = &quot;...&quot;)]</code> to h
 <span class="attribute">#[<span class="ident">serde</span>(<span class="ident">rename</span> <span class="op">=</span> <span class="string">&quot;0x123456&quot;</span>)]</span>
 <span class="kw">struct</span> <span class="ident">MyTtlv</span> { }
 
-<span class="macro">println!</span>(<span class="string">&quot;{:0X?}&quot;</span>, <span class="ident">krill_kmip_ttlv::to_vec</span>(<span class="kw-2">&amp;</span><span class="ident">MyTtlv</span> {}));
+<span class="macro">println!</span>(<span class="string">&quot;{:0X?}&quot;</span>, <span class="ident">kmip_ttlv::to_vec</span>(<span class="kw-2">&amp;</span><span class="ident">MyTtlv</span> {}));
 
 <span class="comment">// prints:</span>
 <span class="comment">// Ok([12, 34, 56, 1, 0, 0, 0, 0])</span></pre></div>
@@ -82,7 +82,10 @@ below for a special note about <code>None</code>)</em>.</p>
 <code>char</code>,</p>
 </li>
 <li>
-<p>The following TTLV types <strong>CANNOT</strong> <em>yet</em> be (de)serialized: Big Integer (0x04), Interval (0x0A).</p>
+<p>The following TTLV types <strong>CANNOT</strong> <em>yet</em> be serialized to TTLV: Big Integer (0x04), Interval (0x0A).</p>
+</li>
+<li>
+<p>The following TTLV types <strong>CANNOT</strong> <em>yet</em> be deserialized from TTLV: Interval (0x0A).</p>
 </li>
 <li>
 <p>The following Rust types <strong>CANNOT</strong> be deserialized as this crate is opinionated and prefers to
@@ -91,7 +94,7 @@ deserialize only into named fields, not nameless groups of values: unit struct, 
 </ul>
 <h1 id="getting-involved" class="section-header"><a href="#getting-involved">Getting involved</a></h1>
 <p>The capabilities of this crate and the TTLV and Rust data types supported are those that were needed to provide a
-foundation for the <code>krill-kmip-protocol</code> crate. This crate does not yet support every possible TTLV or Rust type. If
+foundation for the <code>kmip-protocol</code> crate. This crate does not yet support every possible TTLV or Rust type. If
 you wish to extend the crate yourself PRs are welcome!</p>
 <h1 id="data-types-treated-specially" class="section-header"><a href="#data-types-treated-specially">Data types treated specially</a></h1>
 <ul>
@@ -146,7 +149,7 @@ has the specified type.</li>
 <tr><td>Structure (0x01)</td><td><code>SomeStruct { .. }</code>, <code>SomeStruct( .. )</code>, tuple variant</td><td><code>SomeStruct { .. }</code></td></tr>
 <tr><td>Integer (0x02)</td><td><code>i8</code>, <code>i16</code>, <code>i32</code></td><td><code>i32</code></td></tr>
 <tr><td>Long Integer (0x03)</td><td><code>i64</code></td><td><code>i64</code></td></tr>
-<tr><td>Big Integer (0x04)</td><td><strong>UNSUPPORTED</strong></td><td><strong>UNSUPPORTED</strong></td></tr>
+<tr><td>Big Integer (0x04)</td><td><strong>UNSUPPORTED</strong></td><td><code>Vec&lt;u8&gt;</code></td></tr>
 <tr><td>Enumeration (0x05)</td><td><code>u32</code></td><td>See above</td></tr>
 <tr><td>Boolean (0x06)</td><td><code>bool</code></td><td><code>bool</code></td></tr>
 <tr><td>Text String (0x07)</td><td>`str``</td><td><code>String</code></td></tr>
@@ -154,6 +157,11 @@ has the specified type.</li>
 <tr><td>Date Time (0x09)</td><td><code>u64</code></td><td><code>i64</code></td></tr>
 <tr><td>Interval (0x0A)</td><td><strong>UNSUPPORTED</strong></td><td><strong>UNSUPPORTED</strong></td></tr>
 </tbody></table>
+<h1 id="big-integers" class="section-header"><a href="#big-integers">Big integers</a></h1>
+<p>TTLV Big Integer values can be deserialized to a <code>Vec&lt;u8&gt;</code> in their raw byte format. Using a crate like
+<code>num_bigint</code> you can work with these byte sequences as if they were normal Rust integers. For example, To convert
+from a <code>Vec&lt;u8&gt;</code> obtained from a TTLV Big Integer to a <code>num_bigint::BigInt</code> use the
+<code>num_bigint::BigInt::from_signed_bytes_be</code> function.</p>
 <h1 id="examples" class="section-header"><a href="#examples">Examples</a></h1>
 <p>For detailed examples of how to annotate your data types with Serde derive attributes for use with this crate look
 at the tests in the source repository for this crate at the end of the <code>de.rs</code> and <code>ser.rs</code> source code files.</p>
@@ -179,8 +187,8 @@ length to deserialize to prevent such abuse.</p>
 diagnosing where the problem in the TTLV byte stream is and why. Error reporting is a work in-progress and should
 get better as the crate matures.</p>
 </div></details><h2 id="reexports" class="section-header"><a href="#reexports">Re-exports</a></h2>
-<table><tr class="import-item"><td><code>pub use de::<a class="fn" href="de/fn.from_reader.html" title="fn krill_kmip_ttlv::de::from_reader">from_reader</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use de::<a class="fn" href="de/fn.from_slice.html" title="fn krill_kmip_ttlv::de::from_slice">from_slice</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use de::<a class="struct" href="de/struct.Config.html" title="struct krill_kmip_ttlv::de::Config">Config</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use ser::<a class="fn" href="ser/fn.to_vec.html" title="fn krill_kmip_ttlv::ser::to_vec">to_vec</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use ser::<a class="fn" href="ser/fn.to_writer.html" title="fn krill_kmip_ttlv::ser::to_writer">to_writer</a>;</code></td><td class="docblock-short"></td></tr></table><h2 id="modules" class="section-header"><a href="#modules">Modules</a></h2>
-<table><tr class="module-item"><td><a class="mod" href="de/index.html" title="krill_kmip_ttlv::de mod">de</a></td><td class="docblock-short"><p>Deserialize TTLV bytes into Rust data types.</p>
-</td></tr><tr class="module-item"><td><a class="mod" href="error/index.html" title="krill_kmip_ttlv::error mod">error</a></td><td class="docblock-short"><p>When serializing or deserializing TTLV data goes wrong.</p>
-</td></tr><tr class="module-item"><td><a class="mod" href="ser/index.html" title="krill_kmip_ttlv::ser mod">ser</a></td><td class="docblock-short"><p>Serialize a Rust data structure into TTLV data.</p>
-</td></tr></table></section><section id="search" class="content hidden"></section><div id="rustdoc-vars" data-root-path="../" data-current-crate="krill_kmip_ttlv" data-search-index-js="../search-index.js" data-search-js="../search.js"></div><script src="../main.js"></script></body></html>
+<table><tr class="import-item"><td><code>pub use de::<a class="fn" href="de/fn.from_reader.html" title="fn kmip_ttlv::de::from_reader">from_reader</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use de::<a class="fn" href="de/fn.from_slice.html" title="fn kmip_ttlv::de::from_slice">from_slice</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use de::<a class="struct" href="de/struct.Config.html" title="struct kmip_ttlv::de::Config">Config</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use ser::<a class="fn" href="ser/fn.to_vec.html" title="fn kmip_ttlv::ser::to_vec">to_vec</a>;</code></td><td class="docblock-short"></td></tr><tr class="import-item"><td><code>pub use ser::<a class="fn" href="ser/fn.to_writer.html" title="fn kmip_ttlv::ser::to_writer">to_writer</a>;</code></td><td class="docblock-short"></td></tr></table><h2 id="modules" class="section-header"><a href="#modules">Modules</a></h2>
+<table><tr class="module-item"><td><a class="mod" href="de/index.html" title="kmip_ttlv::de mod">de</a></td><td class="docblock-short"><p>Deserialize TTLV bytes into Rust data types.</p>
+</td></tr><tr class="module-item"><td><a class="mod" href="error/index.html" title="kmip_ttlv::error mod">error</a></td><td class="docblock-short"><p>When serializing or deserializing TTLV data goes wrong.</p>
+</td></tr><tr class="module-item"><td><a class="mod" href="ser/index.html" title="kmip_ttlv::ser mod">ser</a></td><td class="docblock-short"><p>Serialize a Rust data structure into TTLV data.</p>
+</td></tr></table></section><section id="search" class="content hidden"></section><div id="rustdoc-vars" data-root-path="../" data-current-crate="kmip_ttlv" data-search-index-js="../search-index.js" data-search-js="../search.js"></div><script src="../main.js"></script></body></html>

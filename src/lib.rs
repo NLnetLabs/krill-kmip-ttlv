@@ -17,7 +17,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! krill-kmip-ttlv = "0.1.0"
+//! kmip-ttlv = "0.1.0"
 //! serde = "1.0.126"
 //! serde_derive = "1.0.126"
 //! ```
@@ -26,7 +26,7 @@
 //! below) you can serialize and deserialize them as follows:
 //!
 //! ```ignore
-//! use krill_kmip_ttlv::{Config, from_slice, to_vec};
+//! use kmip_ttlv::{Config, from_slice, to_vec};
 //!
 //! // Serialize some struct variable (whose type is correctly
 //! // attributed) to bytes in TTLV format:
@@ -72,7 +72,7 @@
 //! #[serde(rename = "0x123456")]
 //! struct MyTtlv { }
 //!
-//! println!("{:0X?}", krill_kmip_ttlv::to_vec(&MyTtlv {}));
+//! println!("{:0X?}", kmip_ttlv::to_vec(&MyTtlv {}));
 //!
 //! // prints:
 //! // Ok([12, 34, 56, 1, 0, 0, 0, 0])
@@ -114,7 +114,7 @@
 //! # Getting involved
 //!
 //! The capabilities of this crate and the TTLV and Rust data types supported are those that were needed to provide a
-//! foundation for the `krill-kmip-protocol` crate. This crate does not yet support every possible TTLV or Rust type. If
+//! foundation for the `kmip-protocol` crate. This crate does not yet support every possible TTLV or Rust type. If
 //! you wish to extend the crate yourself PRs are welcome!
 //!
 //! # Data types treated specially

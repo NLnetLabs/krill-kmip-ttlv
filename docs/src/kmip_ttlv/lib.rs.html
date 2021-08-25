@@ -1,6 +1,6 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `src/lib.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>lib.rs - source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../../ayu.css" disabled ><script id="default-settings"></script><script src="../../storage.js"></script><script src="../../crates.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../../favicon.svg">
 <link rel="alternate icon" type="image/png" href="../../favicon-16x16.png">
-<link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu" role="button">&#9776;</div><a href='../../krill_kmip_ttlv/index.html'><div class='logo-container rust-logo'><img src='../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img src="../../brush.svg" width="18" height="18" alt="Pick another theme!"></button><div id="theme-choices" role="menu"></div></div><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../settings.html" title="settings"><img src="../../wheel.svg" width="18" height="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">  1</span>
+<link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu" role="button">&#9776;</div><a href='../../kmip_ttlv/index.html'><div class='logo-container rust-logo'><img src='../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img src="../../brush.svg" width="18" height="18" alt="Pick another theme!"></button><div id="theme-choices" role="menu"></div></div><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../settings.html" title="settings"><img src="../../wheel.svg" width="18" height="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -216,6 +216,15 @@
 <span id="214">214</span>
 <span id="215">215</span>
 <span id="216">216</span>
+<span id="217">217</span>
+<span id="218">218</span>
+<span id="219">219</span>
+<span id="220">220</span>
+<span id="221">221</span>
+<span id="222">222</span>
+<span id="223">223</span>
+<span id="224">224</span>
+<span id="225">225</span>
 </pre><pre class="rust">
 <span class="doccomment">//! A crate to de/serialize Rust data types from/to bytes in the KMIP TTLV format.</span>
 <span class="doccomment">//!</span>
@@ -236,7 +245,7 @@
 <span class="doccomment">//!</span>
 <span class="doccomment">//! ```toml</span>
 <span class="doccomment">//! [dependencies]</span>
-<span class="doccomment">//! krill-kmip-ttlv = &quot;0.1.0&quot;</span>
+<span class="doccomment">//! kmip-ttlv = &quot;0.1.0&quot;</span>
 <span class="doccomment">//! serde = &quot;1.0.126&quot;</span>
 <span class="doccomment">//! serde_derive = &quot;1.0.126&quot;</span>
 <span class="doccomment">//! ```</span>
@@ -245,7 +254,7 @@
 <span class="doccomment">//! below) you can serialize and deserialize them as follows:</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! ```ignore</span>
-<span class="doccomment">//! use krill_kmip_ttlv::{Config, from_slice, to_vec};</span>
+<span class="doccomment">//! use kmip_ttlv::{Config, from_slice, to_vec};</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! // Serialize some struct variable (whose type is correctly</span>
 <span class="doccomment">//! // attributed) to bytes in TTLV format:</span>
@@ -265,7 +274,7 @@
 <span class="doccomment">//!     1.0] (aka KMIP) in [Section 9.1 TTLV Encoding].</span>
 <span class="doccomment">//!   - The byte representation of a TTLV item consists of a 3 byte tag, a 1 byte type, a 4 byte length followed by zero</span>
 <span class="doccomment">//!     or more &quot;Value&quot; bytes.</span>
-<span class="doccomment">//!   - Leaf nodes in the tree are TTLV items whose &quot;Type&quot; denotes them to be a primitive value of some kind (e.g. </span>
+<span class="doccomment">//!   - Leaf nodes in the tree are TTLV items whose &quot;Type&quot; denotes them to be a primitive value of some kind (e.g.</span>
 <span class="doccomment">//!     Integer, Boolean, etc) and whose &quot;Value&quot; is a single primitive value in serialized form, followed by any</span>
 <span class="doccomment">//!     required padding bytes.</span>
 <span class="doccomment">//!   - All other tree nodes are &quot;Structure&quot; TTLV items whose value consists of zero or more TTLV items.</span>
@@ -278,7 +287,7 @@
 <span class="doccomment">//!</span>
 <span class="doccomment">//! # Mapping names to tags</span>
 <span class="doccomment">//!</span>
-<span class="doccomment">//! Rust identifies structs and struct fields by name but TTLV identifies items by numeric &quot;Tag&quot;. We must therefore </span>
+<span class="doccomment">//! Rust identifies structs and struct fields by name but TTLV identifies items by numeric &quot;Tag&quot;. We must therefore</span>
 <span class="doccomment">//! provide a way to map from name to tag and vice versa. As this crate is Serde (Derive) based we can take advantage of</span>
 <span class="doccomment">//! the [Serde Derive atribute] `#[serde(rename = &quot;...&quot;)]` to handle this for us:</span>
 <span class="doccomment">//!</span>
@@ -291,7 +300,7 @@
 <span class="doccomment">//! #[serde(rename = &quot;0x123456&quot;)]</span>
 <span class="doccomment">//! struct MyTtlv { }</span>
 <span class="doccomment">//!</span>
-<span class="doccomment">//! println!(&quot;{:0X?}&quot;, krill_kmip_ttlv::to_vec(&amp;MyTtlv {}));</span>
+<span class="doccomment">//! println!(&quot;{:0X?}&quot;, kmip_ttlv::to_vec(&amp;MyTtlv {}));</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! // prints:</span>
 <span class="doccomment">//! // Ok([12, 34, 56, 1, 0, 0, 0, 0])</span>
@@ -323,7 +332,9 @@
 <span class="doccomment">//! `i8`, `i16`, `f32`, `f64`, `char`, `str`, map, `&amp;[u8]`, `()`.</span>
 <span class="doccomment">//! `char`,</span>
 <span class="doccomment">//!</span>
-<span class="doccomment">//! - The following TTLV types **CANNOT** _yet_ be (de)serialized: Big Integer (0x04), Interval (0x0A).</span>
+<span class="doccomment">//! - The following TTLV types **CANNOT** _yet_ be serialized to TTLV: Big Integer (0x04), Interval (0x0A).</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! - The following TTLV types **CANNOT** _yet_ be deserialized from TTLV: Interval (0x0A).</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! - The following Rust types **CANNOT** be deserialized as this crate is opinionated and prefers to</span>
 <span class="doccomment">//! deserialize only into named fields, not nameless groups of values: unit struct, tuple struct, tuple.</span>
@@ -331,7 +342,7 @@
 <span class="doccomment">//! # Getting involved</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! The capabilities of this crate and the TTLV and Rust data types supported are those that were needed to provide a</span>
-<span class="doccomment">//! foundation for the `krill-kmip-protocol` crate. This crate does not yet support every possible TTLV or Rust type. If</span>
+<span class="doccomment">//! foundation for the `kmip-protocol` crate. This crate does not yet support every possible TTLV or Rust type. If</span>
 <span class="doccomment">//! you wish to extend the crate yourself PRs are welcome!</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! # Data types treated specially</span>
@@ -382,13 +393,20 @@
 <span class="doccomment">//! | Structure (0x01)    | `SomeStruct { .. }`, `SomeStruct( .. )`, tuple variant | `SomeStruct { .. }` |</span>
 <span class="doccomment">//! | Integer (0x02)      | `i8`, `i16`, `i32`  | `i32`               |</span>
 <span class="doccomment">//! | Long Integer (0x03) | `i64`               | `i64`               |</span>
-<span class="doccomment">//! | Big Integer (0x04)  | **UNSUPPORTED**     | **UNSUPPORTED**     |</span>
+<span class="doccomment">//! | Big Integer (0x04)  | **UNSUPPORTED**     | `Vec&lt;u8&gt;`           |</span>
 <span class="doccomment">//! | Enumeration (0x05)  | `u32`               | See above           |</span>
 <span class="doccomment">//! | Boolean (0x06)      | `bool`              | `bool`              |</span>
 <span class="doccomment">//! | Text String (0x07)  | `str``              | `String`            |</span>
 <span class="doccomment">//! | Byte String (0x08)  | `&amp;[u8]`             | `Vec&lt;u8&gt;`           |</span>
 <span class="doccomment">//! | Date Time (0x09)    | `u64`               | `i64`               |</span>
 <span class="doccomment">//! | Interval (0x0A)     | **UNSUPPORTED**     | **UNSUPPORTED**     |</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! # Big integers</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! TTLV Big Integer values can be deserialized to a `Vec&lt;u8&gt;` in their raw byte format. Using a crate like</span>
+<span class="doccomment">//! `num_bigint` you can work with these byte sequences as if they were normal Rust integers. For example, To convert</span>
+<span class="doccomment">//! from a `Vec&lt;u8&gt;` obtained from a TTLV Big Integer to a `num_bigint::BigInt` use the</span>
+<span class="doccomment">//! `num_bigint::BigInt::from_signed_bytes_be` function.</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! # Examples</span>
 <span class="doccomment">//!</span>
@@ -434,4 +452,4 @@
 <span class="kw">pub</span> <span class="kw">use</span> <span class="ident">de</span>::{<span class="ident">from_reader</span>, <span class="ident">from_slice</span>, <span class="ident">Config</span>};
 <span class="kw">pub</span> <span class="kw">use</span> <span class="ident">ser</span>::{<span class="ident">to_vec</span>, <span class="ident">to_writer</span>};
 </pre></div>
-</section><section id="search" class="content hidden"></section><div id="rustdoc-vars" data-root-path="../../" data-current-crate="krill_kmip_ttlv" data-search-index-js="../../search-index.js" data-search-js="../../search.js"></div><script src="../../main.js"></script><script src="../../source-script.js"></script><script src="../../source-files.js"></script></body></html>
+</section><section id="search" class="content hidden"></section><div id="rustdoc-vars" data-root-path="../../" data-current-crate="kmip_ttlv" data-search-index-js="../../search-index.js" data-search-js="../../search.js"></div><script src="../../main.js"></script><script src="../../source-script.js"></script><script src="../../source-files.js"></script></body></html>

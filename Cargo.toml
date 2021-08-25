@@ -1,11 +1,11 @@
 [package]
-name = "krill-kmip-ttlv"
+name = "kmip-ttlv"
 version = "0.1.0-dev"
 authors = ["The NLnet Labs RPKI Team <rpki-team@nlnetlabs.nl>"]
 edition = "2018"
 description = "KMIP TTLV (de)serialization"
 license = "BSD-3-Clause"
-repository = "https://github.com/NLnetLabs/krill-kmip-ttlv/"
+repository = "https://github.com/NLnetLabs/kmip-ttlv/"
 keywords = ["KMIP", "TTLV"]
 categories = ["cryptography", "data-structures", "encoding", "parser-implementations"]
 exclude = ["/.github"]
