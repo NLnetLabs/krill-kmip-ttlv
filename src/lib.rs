@@ -114,8 +114,8 @@
 //! # Getting involved
 //!
 //! The capabilities of this crate and the TTLV and Rust data types supported are those that were needed to provide a
-//! foundation for the `kmip-protocol` crate. This crate does not yet support every possible TTLV or Rust type. If
-//! you wish to extend the crate yourself PRs are welcome!
+//! foundation for the `kmip` crate. This crate does not yet support every possible TTLV or Rust type. If you wish to
+//! extend the crate PRs are welcome!
 //!
 //! # Data types treated specially
 //!
@@ -185,7 +185,7 @@
 //! For detailed examples of how to annotate your data types with Serde derive attributes for use with this crate look
 //! at the tests in the source repository for this crate at the end of the `de.rs` and `ser.rs` source code files.
 //!
-//! For much richer examples see the code and tests in the source repository for the `kmip-ttlv-protocol` crate.
+//! For much richer examples see the code and tests in the source repository for the `kmip` crate.
 //!
 //! # Diagnostics
 //!
