@@ -24,7 +24,7 @@ Note: The scope is limited to TTLV-over-TLS. Support for HTTPS instead of TLS an
 
 ### Status
 
-This is a work-in-progress. The interface offered by this library is expected to change and **no guarantee** of interface stability is made at this time. See the https://github.com/NLnetLabs/kmip/ repository for an implementation of a KMIP TTLV client that uses this crate as the core building block and also includes a sample TTLV over TLS client.
+This is a work-in-progress. The interface offered by this library is expected to change and **no guarantee** of interface stability is made at this time. See the https://crates.io/crates/kmip-protocol/ crate for an implementation of a KMIP TTLV client that uses this crate as the core building block and also includes a sample TTLV over TLS client.
 
 Not all TTLV types are supported:
 
