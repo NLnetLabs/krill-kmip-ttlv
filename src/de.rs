@@ -521,7 +521,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         pub fn split_once<'a>(value: &'a str, delimiter: &str) -> Option<(&'a str, &'a str)> {
             value
                 .find(delimiter)
-                .and_then(|idx| Some((&value[..idx], &value[idx + delimiter.len()..])))
+                .map(|idx| (&value[..idx], &value[idx + delimiter.len()..]))
         }
 
         // TODO: this is horrible code.
