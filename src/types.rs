@@ -493,7 +493,7 @@ mod test {
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne};
 
-    use std::{convert::TryInto, io::Cursor, str::FromStr};
+    use std::{io::Cursor, str::FromStr};
 
     use crate::types::{ItemTag, ItemType, SerializableTtlvType};
 
@@ -712,7 +712,7 @@ mod test {
             .datetime_from_str("Friday, March 14, 2008, 11:56:40 GMT", "%A, %B %d, %Y, %H:%M:%S GMT")
             .unwrap();
         let dt_i64 = dt.timestamp();
-        let expected_i64 = i64::from_be_bytes(hex::decode("0000000047DA67F8").unwrap().try_into().unwrap());
+        let expected_i64 = i64::from_be_bytes(*b"\x00\x00\x00\x00\x47\xDA\x67\xF8");
         assert_eq!(expected_i64, dt_i64);
         TtlvDateTime(dt_i64).write(&mut actual).unwrap();
         assert_eq!(expected, actual);
