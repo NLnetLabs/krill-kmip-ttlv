@@ -519,9 +519,9 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         // str::split_once() wasn't stablized until Rust 1.52.0 but as we want to be usable by Krill, and Krill
         // currently supports Rust >= 1.47.0, we use our own split_once() implementation.
         pub fn split_once<'a>(value: &'a str, delimiter: &str) -> Option<(&'a str, &'a str)> {
-            value.find(delimiter).and_then(|idx| {
-                Some((&value[..idx], &value[idx+delimiter.len()..]))
-            })
+            value
+                .find(delimiter)
+                .and_then(|idx| Some((&value[..idx], &value[idx + delimiter.len()..])))
         }
 
         // TODO: this is horrible code.
@@ -561,7 +561,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
                     return Ok(true);
                 }
             }
-        } else if let Some((wanted_tag, wanted_values)) = split_once(variant.strip_prefix("if ").unwrap_or(""), " in ") {
+        } else if let Some((wanted_tag, wanted_values)) = split_once(variant.strip_prefix("if ").unwrap_or(""), " in ")
+        {
             let wanted_values = wanted_values.strip_prefix('[').and_then(|v| v.strip_suffix(']'));
             if let Some(wanted_values) = wanted_values {
                 if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
@@ -1447,7 +1448,8 @@ mod test {
             "123456 01 00000020",
             "  420042 05 00000004 00000007 00000000", // enum variant 0x00000007
             "  420043 07 00000004 426C6168 00000000"  // string value "Blah"
-        ).replace(" ", "");
+        )
+        .replace(" ", "");
         let serialized_bytes = crate::ser::to_vec(&input_var).unwrap();
         assert_eq!(expected_hex, hex::encode_upper(&serialized_bytes));
 
@@ -1469,7 +1471,8 @@ mod test {
             "123456 01 00000020",
             "  420042 05 00000004 00000001 00000000", // enum variant 0x00000001
             "  420043 02 00000004 000000FF 00000000"  // integer value 0xFF
-        ).replace(" ", "");
+        )
+        .replace(" ", "");
         let serialized_bytes = crate::ser::to_vec(&input_var).unwrap();
         assert_eq!(expected_hex, hex::encode_upper(&serialized_bytes));
 
@@ -1488,7 +1491,8 @@ mod test {
             "123456 01 00000020",
             "  420042 05 00000004 00000002 00000000", // enum variant 0x00000002
             "  420043 02 00000004 000000F0 00000000"  // integer value 0xF0
-        ).replace(" ", "");
+        )
+        .replace(" ", "");
         let serialized_bytes = crate::ser::to_vec(&input_var).unwrap();
         assert_eq!(expected_hex, hex::encode_upper(&serialized_bytes));
 
