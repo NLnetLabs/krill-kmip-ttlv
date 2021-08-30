@@ -97,6 +97,23 @@
 //! range 0x540000 - 0x54FFFF for custom extensions. If using TTLV as a serialization format for your own data you are
 //! free to choose your own tag values anywhere in the range 0x000000 - 0xFFFFFF.
 //!
+//! # Supported data types
+//!
+//! The following gives a rough indication of the mapping of TTLV types to Rust types by this crate and vice versa:
+//!
+//! | TTLV data type      | Serializes from     | Deserializes to     |
+//! |---------------------|---------------------|---------------------|
+//! | Structure (0x01)    | `SomeStruct { .. }`, `SomeStruct( .. )`, tuple variant | `SomeStruct { .. }` |
+//! | Integer (0x02)      | `i8`, `i16`, `i32`  | `i32`               |
+//! | Long Integer (0x03) | `i64`               | `i64`               |
+//! | Big Integer (0x04)  | **UNSUPPORTED**     | `Vec<u8>`           |
+//! | Enumeration (0x05)  | `u32`               | See above           |
+//! | Boolean (0x06)      | `bool`              | `bool`              |
+//! | Text String (0x07)  | `str``              | `String`            |
+//! | Byte String (0x08)  | `&[u8]`             | `Vec<u8>`           |
+//! | Date Time (0x09)    | `u64`               | `i64`               |
+//! | Interval (0x0A)     | **UNSUPPORTED**     | **UNSUPPORTED**     |
+//!
 //! # Unsupported data types
 //!
 //! Not all Rust and TTLV data types are supported by this crate, either because there is no obvious mapping from one to
@@ -156,29 +173,10 @@
 //!     `LongInteger`) will cause this crate to select the enum variant if the TTLV type encountered while deserializing
 //!     has the specified type.
 //!
-//! # Supported data types
-//!
-//! The following gives a rough indication of the mapping of TTLV types to Rust types by this crate and vice versa:
-//!
-//! | TTLV data type      | Serializes from     | Deserializes to     |
-//! |---------------------|---------------------|---------------------|
-//! | Structure (0x01)    | `SomeStruct { .. }`, `SomeStruct( .. )`, tuple variant | `SomeStruct { .. }` |
-//! | Integer (0x02)      | `i8`, `i16`, `i32`  | `i32`               |
-//! | Long Integer (0x03) | `i64`               | `i64`               |
-//! | Big Integer (0x04)  | **UNSUPPORTED**     | `Vec<u8>`           |
-//! | Enumeration (0x05)  | `u32`               | See above           |
-//! | Boolean (0x06)      | `bool`              | `bool`              |
-//! | Text String (0x07)  | `str``              | `String`            |
-//! | Byte String (0x08)  | `&[u8]`             | `Vec<u8>`           |
-//! | Date Time (0x09)    | `u64`               | `i64`               |
-//! | Interval (0x0A)     | **UNSUPPORTED**     | **UNSUPPORTED**     |
-//!
-//! # Big integers
-//!
-//! TTLV Big Integer values can be deserialized to a `Vec<u8>` in their raw byte format. Using a crate like
-//! `num_bigint` you can work with these byte sequences as if they were normal Rust integers. For example, To convert
-//! from a `Vec<u8>` obtained from a TTLV Big Integer to a `num_bigint::BigInt` use the
-//! `num_bigint::BigInt::from_signed_bytes_be` function.
+//! - TTLV Big Integer values can be deserialized to a `Vec<u8>` in their raw byte format. Using a crate like
+//!   `num_bigint` you can work with these byte sequences as if they were normal Rust integers. For example, To convert
+//!   from a `Vec<u8>` obtained from a TTLV Big Integer to a `num_bigint::BigInt` use the
+//!   `num_bigint::BigInt::from_signed_bytes_be` function.
 //!
 //! # Examples
 //!
