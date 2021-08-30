@@ -516,8 +516,16 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     }
 
     fn is_variant_applicable(&self, variant: &'static str) -> Result<bool> {
+        // str::split_once() wasn't stablized until Rust 1.52.0 but as we want to be usable by Krill, and Krill
+        // currently supports Rust >= 1.47.0, we use our own split_once() implementation.
+        pub fn split_once<'a>(value: &'a str, delimiter: &str) -> Option<(&'a str, &'a str)> {
+            value.find(delimiter).and_then(|idx| {
+                Some((&value[..idx], &value[idx+delimiter.len()..]))
+            })
+        }
+
         // TODO: this is horrible code.
-        if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| v.split_once("==")) {
+        if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| split_once(v, "==")) {
             let wanted_tag = wanted_tag.trim();
             let wanted_val = wanted_val.trim();
 
@@ -544,7 +552,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
                     return Ok(true);
                 }
             }
-        } else if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| v.split_once(">=")) {
+        } else if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| split_once(v, ">=")) {
             let wanted_tag = wanted_tag.trim();
             let wanted_val = wanted_val.trim();
 
@@ -553,7 +561,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
                     return Ok(true);
                 }
             }
-        } else if let Some((wanted_tag, wanted_values)) = variant.strip_prefix("if ").unwrap_or("").split_once(" in ") {
+        } else if let Some((wanted_tag, wanted_values)) = split_once(variant.strip_prefix("if ").unwrap_or(""), " in ") {
             let wanted_values = wanted_values.strip_prefix('[').and_then(|v| v.strip_suffix(']'));
             if let Some(wanted_values) = wanted_values {
                 if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {

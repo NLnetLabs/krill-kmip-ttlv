@@ -10,11 +10,15 @@ keywords = ["KMIP", "TTLV", "serde", "serialization"]
 categories = ["cryptography", "data-structures", "encoding", "parser-implementations"]
 exclude = ["/.github"]
 readme = "README.md"
+build = "build.rs"
 
 [dependencies]
 hex = "0.4.3"
 log = "0.4.14"
 serde = "1.0.126"
+
+[build-dependencies]
+rustc_version   = "0.2.3"
 
 [dev-dependencies]
 chrono = { version = "0.4.19", default-features = false }
