@@ -1,4 +1,6 @@
 [![CI](https://github.com/NLnetLabs/kmip-ttlv/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NLnetLabs/kmip-ttlv/actions/workflows/ci.yml)
+[![Crate](https://img.shields.io/crates/v/kmip-ttlv)](crates.io/crates/kmip-ttlv)
+[![Docs](https://img.shields.io/docsrs/kmip-ttlv)](https://docs.rs/kmip-ttlv/0.1.1/kmip_ttlv/)
 
 # kmip-ttlv - A library for (de)serializing KMIP TTLV
 
@@ -29,7 +31,7 @@ Not all TTLV types are supported:
 | TTLV Type | TTLV Type Code | Supported? |
 |---|---|---|
 | Structure | 0x01 | ✔️ |
-| Integer | 0x02 | ✔️ |
+| Integer | 0x02 | ✔️ _(deserialization only)_ |
 | Long Integer | 0x03 | ✔️ |
 | Big Integer | 0x04 | ✔️ |
 | Enumeration | 0x05 | ✔️ |
