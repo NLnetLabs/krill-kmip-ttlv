@@ -11,6 +11,12 @@
 //! [Serde Derive]: https://serde.rs/derive.html
 //! [KMIP TTLV data format]: https://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc262581260
 //!
+//! # Getting involved
+//!
+//! The capabilities of this crate and the TTLV and Rust data types supported are those that were needed to provide a
+//! foundation for the `kmip-protocol` crate. This crate does not yet support every possible TTLV or Rust type. If you
+//! wish to extend the crate PRs are welcome!
+//!
 //! # Usage
 //!
 //! Add the following to your `Cargo.toml`:
@@ -111,12 +117,6 @@
 //! - The following Rust types **CANNOT** be deserialized as this crate is opinionated and prefers to
 //! deserialize only into named fields, not nameless groups of values: unit struct, tuple struct, tuple.
 //!
-//! # Getting involved
-//!
-//! The capabilities of this crate and the TTLV and Rust data types supported are those that were needed to provide a
-//! foundation for the `kmip` crate. This crate does not yet support every possible TTLV or Rust type. If you wish to
-//! extend the crate PRs are welcome!
-//!
 //! # Data types treated specially
 //!
 //! - The Rust `struct` type by default serializes to a TTLV Structure However sometimes it is useful to be able to use a newtype struct as a wrapper around a primitive type so that you
@@ -185,7 +185,7 @@
 //! For detailed examples of how to annotate your data types with Serde derive attributes for use with this crate look
 //! at the tests in the source repository for this crate at the end of the `de.rs` and `ser.rs` source code files.
 //!
-//! For much richer examples see the code and tests in the source repository for the `kmip` crate.
+//! For much richer examples see the code and tests in the source repository for the `kmip-protocol` crate.
 //!
 //! # Diagnostics
 //!
