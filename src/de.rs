@@ -494,7 +494,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         }
 
         if group_type != ItemType::Structure {
-            return Err(Error::Other(format!("Wanted type '{:?}' but found '{:?}'",
+            return Err(Error::Other(format!(
+                "Wanted type '{:?}' but found '{:?}'",
                 ItemType::Structure,
                 group_type
             )));
@@ -502,6 +503,14 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
 
         let group_len = Self::read_length(&mut self.src)?;
         let group_end = (self.pos() + (group_len as usize)) as u64;
+
+        let buf_len = self.buf().len() as u64;
+        if group_end > buf_len {
+            return Err(Error::Other(format!(
+                "Structure overflow: length {} (0x{:08X}) puts end at byte {} but buffer ends at byte {}",
+                group_len, group_len, group_end, buf_len,
+            )));
+        }
 
         Ok((group_start, group_tag, group_type, group_end))
     }

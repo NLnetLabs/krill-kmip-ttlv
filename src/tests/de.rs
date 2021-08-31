@@ -118,7 +118,13 @@ fn test_io_error_unexpected_eof_with_reader() {
     }
 }
 
-fn assert_err_msg(err: Error, err_desc: &'static str, expected_bytes_consumed: usize, buf_len: usize, expected_ctx: &'static str) {
+fn assert_err_msg(
+    err: Error,
+    err_desc: &'static str,
+    expected_bytes_consumed: usize,
+    buf_len: usize,
+    expected_ctx: &'static str,
+) {
     assert!(matches!(err, Error::DeserializeError { .. }));
     assert_eq!(
         format!("{}", err),
@@ -190,9 +196,31 @@ fn test_malformed_ttlv() {
 
     let ttlv_bytes = ttlv_bytes_with_invalid_type();
     let res = from_slice::<RootType>(&ttlv_bytes);
-    assert_err_msg(res.unwrap_err(), "Deserialization error: No known ItemType has u8 value 0", 4, ttlv_bytes.len(), "^AAAAAA00>>00<<000020$");
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: No known ItemType has u8 value 0",
+        4,
+        ttlv_bytes.len(),
+        "^AAAAAA00>>00<<000020$",
+    );
 
     let ttlv_bytes = ttlv_bytes_with_wrong_root_type();
     let res = from_slice::<RootType>(&ttlv_bytes);
-    assert_err_msg(res.unwrap_err(), "Deserialization error: Wanted type 'Structure' but found 'Integer'", 4, ttlv_bytes.len(), "^AAAAAA02>>00<<000020$");
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: Wanted type 'Structure' but found 'Integer'",
+        4,
+        ttlv_bytes.len(),
+        "^AAAAAA02>>00<<000020$",
+    );
+
+    let ttlv_bytes = ttlv_bytes_with_length_overflow();
+    let res = from_slice::<RootType>(&ttlv_bytes);
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: Structure overflow: length 33 (0x00000021) puts end at byte 41 but buffer ends at byte 40",
+        8,
+        ttlv_bytes.len(),
+        "^AAAAAA0100000021>>BB<<BBBB02000000040000000100000000CCCCCC02000000040000000200000000..$",
+    );
 }
