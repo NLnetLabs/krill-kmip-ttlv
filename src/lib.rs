@@ -181,9 +181,9 @@
 //! # Examples
 //!
 //! For detailed examples of how to annotate your data types with Serde derive attributes for use with this crate look
-//! at the tests in the source repository for this crate at the end of the `de.rs` and `ser.rs` source code files.
+//! at the [tests in the source repository for this crate](https://github.com/NLnetLabs/kmip-ttlv/tree/main/src/tests/).
 //!
-//! For much richer examples see the code and tests in the source repository for the `kmip-protocol` crate.
+//! For much richer examples see the code and tests in the source repository for the [kmip-protocol] crate.
 //!
 //! # Diagnostics
 //!
@@ -221,3 +221,6 @@ mod types;
 
 pub use de::{from_reader, from_slice, Config};
 pub use ser::{to_vec, to_writer};
+
+#[cfg(test)]
+mod tests;
