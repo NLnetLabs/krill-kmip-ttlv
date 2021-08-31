@@ -19,15 +19,19 @@ pub(crate) struct ResponseMessage {
 #[serde(rename = "0x42007A")]
 pub(crate) struct ResponseHeader {
     pub ver: ProtocolVersion,
-    #[serde(rename = "0x420092")] pub timestamp: i64,
-    #[serde(rename = "0x42000D")] pub item_count: i32,
+    #[serde(rename = "0x420092")]
+    pub timestamp: i64,
+    #[serde(rename = "0x42000D")]
+    pub item_count: i32,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename = "0x420069")]
 pub(crate) struct ProtocolVersion {
-    #[serde(rename = "0x42006A")] pub major: i32,
-    #[serde(rename = "0x42006B")] pub minor: i32,
+    #[serde(rename = "0x42006A")]
+    pub major: i32,
+    #[serde(rename = "0x42006B")]
+    pub minor: i32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,8 +66,10 @@ pub(crate) enum ResponsePayload {
 #[derive(Debug, Deserialize)]
 #[serde(rename = "0x42007C")]
 pub(crate) struct CreateResponsePayload {
-    #[serde(rename = "0x420057")] pub object_type: ObjectType,
-    #[serde(rename = "0x420094")] pub unique_id: String,
+    #[serde(rename = "0x420057")]
+    pub object_type: ObjectType,
+    #[serde(rename = "0x420094")]
+    pub unique_id: String,
 }
 
 #[derive(Debug, Deserialize)]

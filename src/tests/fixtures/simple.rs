@@ -1,10 +1,12 @@
 use serde_derive::Deserialize;
-            
+
 #[derive(Debug, Deserialize)]
 #[serde(rename = "0xAAAAAA")]
 pub(crate) struct RootType {
-    #[serde(rename = "0xBBBBBB")] a: i32,
-    #[serde(rename = "0xCCCCCC")] b: i32,
+    #[serde(rename = "0xBBBBBB")]
+    a: i32,
+    #[serde(rename = "0xCCCCCC")]
+    b: i32,
 }
 
 pub(crate) fn ttlv_bytes() -> Vec<u8> {
