@@ -251,7 +251,7 @@ pub fn to_string(bytes: &[u8]) -> String {
 
 impl serde::de::Error for Error {
     fn custom<T: std::fmt::Display>(msg: T) -> Self {
-        Self::Other(format!("Serde deserialization error: {}", msg))
+        Self::Other(msg.to_string())
     }
 }
 
@@ -485,25 +485,23 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     }
 
     fn prepare_to_descend(&mut self, name: &'static str) -> Result<(u64, ItemTag, ItemType, u64)> {
+        let wanted_tag = ItemTag::from_str(name).map_err(|err| Error::InvalidTag(err.to_string()))?;
+
         let (group_start, group_tag, group_type) = self.get_start_tag_type()?;
-        // .map_err(|err| self.error(caller_fn_name, &err.to_string()))?;
-
-        let group_len = Self::read_length(&mut self.src)?;
-        let group_end = (self.pos() + (group_len as usize)) as u64;
-
-        let wanted_tag = ItemTag::from_str(name).map_err(|_| self.error(&format!("'{}' is not a tag", name)))?;
 
         if group_tag != wanted_tag {
             return Err(self.error(&format!("Wanted tag '{}' but found '{}'", wanted_tag, group_tag)));
         }
 
         if group_type != ItemType::Structure {
-            return Err(self.error(&format!(
-                "Wanted type '{:?}' but found '{:?}'",
+            return Err(Error::Other(format!("Wanted type '{:?}' but found '{:?}'",
                 ItemType::Structure,
                 group_type
             )));
         }
+
+        let group_len = Self::read_length(&mut self.src)?;
+        let group_end = (self.pos() + (group_len as usize)) as u64;
 
         Ok((group_start, group_tag, group_type, group_end))
     }

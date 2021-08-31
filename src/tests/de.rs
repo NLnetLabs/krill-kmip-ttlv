@@ -118,22 +118,26 @@ fn test_io_error_unexpected_eof_with_reader() {
     }
 }
 
+fn assert_err_msg(err: Error, err_desc: &'static str, expected_bytes_consumed: usize, buf_len: usize, expected_ctx: &'static str) {
+    assert!(matches!(err, Error::DeserializeError { .. }));
+    assert_eq!(
+        format!("{}", err),
+        format!(
+            "{} at position {}/{} with context: {}",
+            err_desc, expected_bytes_consumed, buf_len, expected_ctx
+        )
+    );
+}
+
 #[test]
 #[rustfmt::skip]
 fn test_io_error_unexpected_eof_with_slice() {
     use fixtures::simple::*;
 
-    fn assert_err_msg_with_forced_eof(cutoff_at_byte: usize, expected_bytes_consumed: usize, expected_ctx: &str) {
+    fn assert_err_msg_with_forced_eof(cutoff_at_byte: usize, expected_bytes_consumed: usize, expected_ctx: &'static str) {
         let err_desc = "Deserialization error: IO error (UnexpectedEof: failed to fill whole buffer)";
         let res = from_slice::<RootType>(&ttlv_bytes()[0..cutoff_at_byte]);
-        assert!(matches!(res, Err(Error::DeserializeError { .. })));
-        assert_eq!(
-            format!("{}", res.unwrap_err()),
-            format!(
-                "{} at position {}/{} with context: {}",
-                err_desc, expected_bytes_consumed, cutoff_at_byte, expected_ctx
-            )
-        );
+        assert_err_msg(res.unwrap_err(), err_desc, expected_bytes_consumed, cutoff_at_byte, expected_ctx);
     }
 
     assert_err_msg_with_forced_eof(0, 0, "^>><<$");                                                 //  0 bytes read, 0 bytes left
@@ -178,4 +182,17 @@ fn test_io_error_unexpected_eof_with_slice() {
     assert_err_msg_with_forced_eof(23, 20, "^AAAAAA0100000020BBBBBB020000000400000001>>00<<0000$"); // 20 bytes read, 1 byte next, 2 bytes after
     assert_err_msg_with_forced_eof(24, 24, "..00000020BBBBBB02000000040000000100000000>><<$");      // 24 bytes read, 0 bytes left
     //                                      ^^ sliding window no longer stretches back to the start of the buffer
+}
+
+#[test]
+fn test_malformed_ttlv() {
+    use fixtures::malformed_ttlv::*;
+
+    let ttlv_bytes = ttlv_bytes_with_invalid_type();
+    let res = from_slice::<RootType>(&ttlv_bytes);
+    assert_err_msg(res.unwrap_err(), "Deserialization error: No known ItemType has u8 value 0", 4, ttlv_bytes.len(), "^AAAAAA00>>00<<000020$");
+
+    let ttlv_bytes = ttlv_bytes_with_wrong_root_type();
+    let res = from_slice::<RootType>(&ttlv_bytes);
+    assert_err_msg(res.unwrap_err(), "Deserialization error: Wanted type 'Structure' but found 'Integer'", 4, ttlv_bytes.len(), "^AAAAAA02>>00<<000020$");
 }

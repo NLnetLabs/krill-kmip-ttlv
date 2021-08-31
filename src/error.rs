@@ -74,7 +74,7 @@ impl Display for Error {
                 "Serialization to TTLV from Rust type {} is not supported",
                 rust_type
             )),
-            Error::Other(err) => f.write_fmt(format_args!("Other error: {}", err)),
+            Error::Other(err) => f.write_str(err),
         }
     }
 }
