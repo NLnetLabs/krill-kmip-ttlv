@@ -103,11 +103,26 @@ fn test_io_error_insufficient_read_buffer_size() {
     }
 }
 
-// #[test]
-// fn test_io_error_unexpected_eof() {
-//     use fixtures::simple::*;
+#[test]
+fn test_io_error_unexpected_eof_with_reader() {
+    use fixtures::simple::*;
+    use std::io::Read; // for .take()
 
-//     fn make_limited_reader(max_bytes: u64) -> impl std::io::Read {
-//         std::io::Cursor::new(ttlv_bytes()).take(max_bytes)
-//     }
-// }
+    fn make_limited_reader(max_bytes: u64) -> impl std::io::Read {
+        std::io::Cursor::new(ttlv_bytes()).take(max_bytes)
+    }
+
+    for insufficient_length in [0, 1, 2, 10] {
+        let res = from_reader::<RootType, _>(make_limited_reader(insufficient_length), &Config::default());
+        assert!(matches!(res, Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof));
+    }
+}
+
+#[test]
+fn test_io_error_unexpected_eof_with_slice() {
+    use fixtures::simple::*;
+
+    for insufficient_length in [0, 1, 2, 10] {
+        assert!(from_slice::<RootType>(&ttlv_bytes()[0..insufficient_length]).is_err());
+    }
+}

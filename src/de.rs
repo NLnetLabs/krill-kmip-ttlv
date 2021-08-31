@@ -262,6 +262,11 @@ trait ContextualErrorSupport {
     fn ctx(&self) -> String {
         let pos = self.pos();
         let buf_len = self.buf().len();
+
+        if buf_len == 0 {
+            return "<empty>".to_string();
+        }
+
         let start = if pos > Self::WINDOW_SIZE {
             pos - Self::WINDOW_SIZE
         } else {
