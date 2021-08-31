@@ -1,14 +1,9 @@
-use crate::from_slice;
+use crate::error::Error;
 use crate::tests::fixtures;
+use crate::{from_reader, from_slice, Config};
 
 #[allow(unused_imports)]
 use pretty_assertions::{assert_eq, assert_ne};
-
-#[test]
-fn test_simple() {
-    use fixtures::simple::*;
-    assert!(from_slice::<RootType>(&ttlv_bytes()).is_ok());
-}
 
 #[test]
 fn test_kmip_10_create_destroy_use_case_create_response_deserialization() {
@@ -68,3 +63,51 @@ fn test_is_variant_applicable_if_not_matched() {
     let res = from_slice::<SomeKey>(&some_unknown_key_type::ttlv_bytes());
     assert!(res.is_err());
 }
+
+#[test]
+fn test_io_error_insufficient_read_buffer_size() {
+    use fixtures::simple::*;
+
+    let full_input_byte_len = ttlv_bytes().len();
+
+    fn with_full_read_buffer() -> Config {
+        Config::default()
+    }
+
+    fn with_limited_read_buffer(max_bytes: u32) -> Config {
+        Config::default().with_max_bytes(max_bytes)
+    }
+
+    fn make_full_reader() -> impl std::io::Read {
+        std::io::Cursor::new(ttlv_bytes())
+    }
+
+    // sanity check
+    assert!(from_reader::<RootType, _>(make_full_reader(), &with_full_read_buffer()).is_ok());
+
+    // limit the read buffer to several insufficient lengths
+    for insufficient_length in [0, 1, 2, 10] {
+        let res = from_reader::<RootType, _>(make_full_reader(), &with_limited_read_buffer(insufficient_length));
+
+        // Verify the error type
+        assert!(matches!(res, Err(Error::InvalidLength(_))));
+
+        // Verify the error message
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            format!(
+                "Invalid Item Length: The TTLV response length ({}) is greater than the maximum supported ({})",
+                full_input_byte_len, insufficient_length
+            )
+        );
+    }
+}
+
+// #[test]
+// fn test_io_error_unexpected_eof() {
+//     use fixtures::simple::*;
+
+//     fn make_limited_reader(max_bytes: u64) -> impl std::io::Read {
+//         std::io::Cursor::new(ttlv_bytes()).take(max_bytes)
+//     }
+// }

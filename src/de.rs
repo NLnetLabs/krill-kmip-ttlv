@@ -107,7 +107,7 @@ where
         if additional_len > max_bytes {
             return Err(Error::InvalidLength(format!(
                 "The TTLV response length ({}) is greater than the maximum supported ({})",
-                additional_len, max_bytes
+                buf.len() + additional_len as usize, max_bytes
             )));
         }
     }
