@@ -258,16 +258,6 @@ fn test_incorrect_serde_configuration() {
     );
 
     let ttlv_bytes = ttlv_bytes_with_invalid_integer_length();
-    let res = from_slice::<FlexibleRootType<bool>>(&ttlv_bytes);
-    assert_err_msg(
-        res.unwrap_err(),
-        "Deserialization error: Unexpected item type: TTLV type to deserialize into a bool should be Boolean (0x06) but found Integer (0x02)",
-        12,
-        ttlv_bytes.len(),
-        "^AAAAAA0100000010BBBBBB02>>00<<0000050000000100000000$",
-    );
-
-    let ttlv_bytes = ttlv_bytes_with_invalid_integer_length();
     let res = from_slice::<FlexibleRootType<String>>(&ttlv_bytes);
     assert_err_msg(
         res.unwrap_err(),
