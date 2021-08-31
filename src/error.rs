@@ -10,7 +10,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[non_exhaustive]
 pub enum Error {
     // TODO: use named struct fields
-    DeserializeError { ctx: String, pos: usize, msg: String },
+    DeserializeError {
+        ctx: String,
+        pos: usize,
+        len: usize,
+        msg: String,
+    },
     SerializeError(String),
     IoError(std::io::Error),
     InsufficientBytes,
@@ -42,16 +47,16 @@ impl From<ParseIntError> for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::DeserializeError { ctx, pos, msg } => f.write_fmt(format_args!(
-                "Deserialization error: {} at position {} with context {:?}",
-                ctx, pos, msg
+            Error::DeserializeError { ctx, pos, len, msg } => f.write_fmt(format_args!(
+                "Deserialization error: {} at position {}/{} with context: {}",
+                msg, pos, len, ctx
             )),
             Error::SerializeError(err) => f.write_fmt(format_args!("Serialization error: {}", err)),
-            Error::IoError(err) => f.write_fmt(format_args!("IO error: {:?}", err)),
+            Error::IoError(err) => f.write_fmt(format_args!("IO error ({:?}: {})", err.kind(), err)),
             Error::InsufficientBytes => f.write_str("Insufficient bytes"),
-            Error::InvalidTag(err) => f.write_fmt(format_args!("Invalid Item Tag: {}", err)),
-            Error::InvalidType(err) => f.write_fmt(format_args!("Invalid Item Type: {}", err)),
-            Error::InvalidLength(err) => f.write_fmt(format_args!("Invalid Item Length: {}", err)),
+            Error::InvalidTag(err) => f.write_fmt(format_args!("Invalid item tag: {}", err)),
+            Error::InvalidType(err) => f.write_fmt(format_args!("Invalid item ype: {}", err)),
+            Error::InvalidLength(err) => f.write_fmt(format_args!("Invalid item length: {}", err)),
             Error::InvalidUtf8(err) => f.write_fmt(format_args!("Invalid UTF-8: {}", err)),
             Error::UnableToDetermineTtlvStructureLength => {
                 f.write_str("The length of one or more TTLV structures could not be determined.")

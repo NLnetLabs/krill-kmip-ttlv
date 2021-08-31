@@ -70,24 +70,24 @@ fn test_io_error_insufficient_read_buffer_size() {
 
     let full_input_byte_len = ttlv_bytes().len();
 
-    fn with_full_read_buffer() -> Config {
+    fn no_response_size_limit() -> Config {
         Config::default()
     }
 
-    fn with_limited_read_buffer(max_bytes: u32) -> Config {
+    fn reject_if_response_larger_than(max_bytes: u32) -> Config {
         Config::default().with_max_bytes(max_bytes)
     }
 
-    fn make_full_reader() -> impl std::io::Read {
+    fn make_reader() -> impl std::io::Read {
         std::io::Cursor::new(ttlv_bytes())
     }
 
     // sanity check
-    assert!(from_reader::<RootType, _>(make_full_reader(), &with_full_read_buffer()).is_ok());
+    assert!(from_reader::<RootType, _>(make_reader(), &no_response_size_limit()).is_ok());
 
     // limit the read buffer to several insufficient lengths
-    for insufficient_length in [0, 1, 2, 10] {
-        let res = from_reader::<RootType, _>(make_full_reader(), &with_limited_read_buffer(insufficient_length));
+    for max_readable_bytes in [0, 1, 2, 10] {
+        let res = from_reader::<RootType, _>(make_reader(), &reject_if_response_larger_than(max_readable_bytes));
 
         // Verify the error type
         assert!(matches!(res, Err(Error::InvalidLength(_))));
@@ -96,8 +96,8 @@ fn test_io_error_insufficient_read_buffer_size() {
         assert_eq!(
             format!("{}", res.unwrap_err()),
             format!(
-                "Invalid Item Length: The TTLV response length ({}) is greater than the maximum supported ({})",
-                full_input_byte_len, insufficient_length
+                "Invalid item length: The TTLV response length ({}) is greater than the maximum supported ({})",
+                full_input_byte_len, max_readable_bytes
             )
         );
     }
@@ -112,17 +112,70 @@ fn test_io_error_unexpected_eof_with_reader() {
         std::io::Cursor::new(ttlv_bytes()).take(max_bytes)
     }
 
-    for insufficient_length in [0, 1, 2, 10] {
-        let res = from_reader::<RootType, _>(make_limited_reader(insufficient_length), &Config::default());
+    for max_readable_bytes in [0, 1, 2, 10] {
+        let res = from_reader::<RootType, _>(make_limited_reader(max_readable_bytes), &Config::default());
         assert!(matches!(res, Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof));
     }
 }
 
 #[test]
+#[rustfmt::skip]
 fn test_io_error_unexpected_eof_with_slice() {
     use fixtures::simple::*;
 
-    for insufficient_length in [0, 1, 2, 10] {
-        assert!(from_slice::<RootType>(&ttlv_bytes()[0..insufficient_length]).is_err());
+    fn assert_err_msg_with_forced_eof(cutoff_at_byte: usize, expected_bytes_consumed: usize, expected_ctx: &str) {
+        let err_desc = "Deserialization error: IO error (UnexpectedEof: failed to fill whole buffer)";
+        let res = from_slice::<RootType>(&ttlv_bytes()[0..cutoff_at_byte]);
+        assert!(matches!(res, Err(Error::DeserializeError { .. })));
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            format!(
+                "{} at position {}/{} with context: {}",
+                err_desc, expected_bytes_consumed, cutoff_at_byte, expected_ctx
+            )
+        );
     }
+
+    assert_err_msg_with_forced_eof(0, 0, "^>><<$");                                                 //  0 bytes read, 0 bytes left
+
+    // Read successive bytes until the entire TTLV 3-byte tag is read
+    assert_err_msg_with_forced_eof( 1,  0, "^>>AA<<$");                                             //  0 bytes read, 1 byte left
+    assert_err_msg_with_forced_eof( 2,  0, "^>>AA<<AA$");                                           //  0 bytes read, 1 byte next, 1 byte after
+    assert_err_msg_with_forced_eof( 3,  3, "^AAAAAA>><<$");                                         //  3 bytes read, 0 bytes left
+
+    // Read the 1-byte TTLV type byte too
+    assert_err_msg_with_forced_eof( 4,  4, "^AAAAAA01>><<$");                                       //  4 bytes read, 0 bytes left
+
+    // Read successive bytes until the 4-byte TTLV length is also read
+    assert_err_msg_with_forced_eof( 5,  4, "^AAAAAA01>>00<<$");                                     //  4 bytes read, 1 byte left
+    assert_err_msg_with_forced_eof( 6,  4, "^AAAAAA01>>00<<00$");                                   //  4 bytes read, 1 byte next, 1 byte after
+    assert_err_msg_with_forced_eof( 7,  4, "^AAAAAA01>>00<<0000$");                                 //  4 bytes read, 1 byte next, 2 bytes after
+    assert_err_msg_with_forced_eof( 8,  8, "^AAAAAA0100000020>><<$");                               //  8 bytes read, 0 bytes left
+
+    // Read successive bytes until the entire next TTLV 3-byte tag is read
+    assert_err_msg_with_forced_eof( 9,  8, "^AAAAAA0100000020>>BB<<$");                             //  8 bytes read, 1 byte next
+    assert_err_msg_with_forced_eof(10,  8, "^AAAAAA0100000020>>BB<<BB$");                           //  8 bytes read, 1 byte next, 1 byte after
+    assert_err_msg_with_forced_eof(11, 11, "^AAAAAA0100000020BBBBBB>><<$");                         // 11 bytes read, 0 bytes left
+
+    // Read the 1-byte TTLV type byte too
+    assert_err_msg_with_forced_eof(12, 12, "^AAAAAA0100000020BBBBBB02>><<$");                       // 12 bytes read, 0 bytes left
+
+    // Read successive bytes until the 4-byte TTLV length is also read
+    assert_err_msg_with_forced_eof(13, 12, "^AAAAAA0100000020BBBBBB02>>00<<$");                     // 12 bytes read, 1 byte next
+    assert_err_msg_with_forced_eof(14, 12, "^AAAAAA0100000020BBBBBB02>>00<<00$");                   // 12 bytes read, 1 byte next, 1 byte after
+    assert_err_msg_with_forced_eof(15, 12, "^AAAAAA0100000020BBBBBB02>>00<<0000$");                 // 12 bytes read, 1 byte next, 2 bytes after
+    assert_err_msg_with_forced_eof(16, 16, "^AAAAAA0100000020BBBBBB0200000004>><<$");               // 16 bytes read, 0 bytes left
+
+    // Read successive bytes until the 4-byte TTLV value is also read
+    assert_err_msg_with_forced_eof(17, 16, "^AAAAAA0100000020BBBBBB0200000004>>00<<$");             // 16 bytes read, 1 byte next
+    assert_err_msg_with_forced_eof(18, 16, "^AAAAAA0100000020BBBBBB0200000004>>00<<00$");           // 16 bytes read, 1 byte next, 1 byte after
+    assert_err_msg_with_forced_eof(19, 16, "^AAAAAA0100000020BBBBBB0200000004>>00<<0000$");         // 16 bytes read, 1 byte next, 2 bytes after
+    assert_err_msg_with_forced_eof(20, 20, "^AAAAAA0100000020BBBBBB020000000400000001>><<$");       // 20 bytes read, 0 bytes left
+
+    // Read successive bytes until the 4-byte TTLV value padding is also read
+    assert_err_msg_with_forced_eof(21, 20, "^AAAAAA0100000020BBBBBB020000000400000001>>00<<$");     // 20 bytes read, 1 byte next
+    assert_err_msg_with_forced_eof(22, 20, "^AAAAAA0100000020BBBBBB020000000400000001>>00<<00$");   // 20 bytes read, 1 byte next, 1 byte after
+    assert_err_msg_with_forced_eof(23, 20, "^AAAAAA0100000020BBBBBB020000000400000001>>00<<0000$"); // 20 bytes read, 1 byte next, 2 bytes after
+    assert_err_msg_with_forced_eof(24, 24, "..00000020BBBBBB02000000040000000100000000>><<$");      // 24 bytes read, 0 bytes left
+    //                                      ^^ sliding window no longer stretches back to the start of the buffer
 }

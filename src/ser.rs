@@ -38,7 +38,8 @@ where
     W: Write,
 {
     let vec = to_vec(value)?;
-    writer.write_all(&vec).map_err(Error::IoError)
+    let res = writer.write_all(&vec)?;
+    Ok(res)
 }
 
 impl std::error::Error for Error {}
