@@ -69,7 +69,7 @@ impl Display for Error {
             Error::UnexpectedTtlvType(item_type, found) => {
                 f.write_fmt(format_args!("Unexpected TTLV type '{:?}' failed: {}", item_type, found))
             }
-            Error::UnexpectedType(item_type) => f.write_fmt(format_args!("Unexpected item type '{:?}'", item_type)),
+            Error::UnexpectedType(item_type) => f.write_fmt(format_args!("Unexpected item type: {}", item_type)),
             Error::UnsupportedType(rust_type) => f.write_fmt(format_args!(
                 "Serialization to TTLV from Rust type {} is not supported",
                 rust_type

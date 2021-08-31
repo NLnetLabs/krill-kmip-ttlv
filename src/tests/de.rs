@@ -199,4 +199,91 @@ fn test_malformed_ttlv() {
         ttlv_bytes.len(),
         "^AAAAAA0100000021>>BB<<BBBB02000000040000000100000000CCCCCC02000000040000000200000000..$",
     );
+
+    let ttlv_bytes = ttlv_bytes_with_invalid_integer_length();
+    let res = from_slice::<FlexibleRootType<i32>>(&ttlv_bytes);
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: Invalid item length: Item length is 5 but for type TtlvInteger it should be 4",
+        16,
+        ttlv_bytes.len(),
+        "^AAAAAA0100000010BBBBBB0200000005>>00<<00000100000000$",
+    );
+
+    let ttlv_bytes = ttlv_bytes_with_invalid_long_integer_length();
+    let res = from_slice::<FlexibleRootType<i64>>(&ttlv_bytes);
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: Invalid item length: Item length is 5 but for type TtlvLongInteger it should be 8",
+        16,
+        ttlv_bytes.len(),
+        "^AAAAAA0100000010BBBBBB0300000005>>00<<00000100000000$",
+    );
+}
+
+#[test]
+fn test_incorrect_serde_configuration() {
+    use fixtures::malformed_ttlv::*;
+
+    // use the invalid value length fixtures as we don't get as far as deserializing the value but instead fail before
+    // that due to the TTLV type encountered not matching the Rust type being deserialized into.
+    let ttlv_bytes = ttlv_bytes_with_invalid_long_integer_length();
+    let res = from_slice::<FlexibleRootType<i32>>(&ttlv_bytes);
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: Unexpected item type: TTLV type to deserialize into a i32 should be Integer (0x02) but found LongInteger (0x03)",
+        12,
+        ttlv_bytes.len(),
+        "^AAAAAA0100000010BBBBBB03>>00<<0000050000000100000000$",
+    );
+
+    let ttlv_bytes = ttlv_bytes_with_invalid_integer_length();
+    let res = from_slice::<FlexibleRootType<i64>>(&ttlv_bytes);
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: Unexpected item type: TTLV type to deserialize into a i64 should be LongInteger (0x03) but found Integer (0x02)",
+        12,
+        ttlv_bytes.len(),
+        "^AAAAAA0100000010BBBBBB02>>00<<0000050000000100000000$",
+    );
+
+    let ttlv_bytes = ttlv_bytes_with_invalid_integer_length();
+    let res = from_slice::<FlexibleRootType<bool>>(&ttlv_bytes);
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: Unexpected item type: TTLV type to deserialize into a bool should be Boolean (0x06) but found Integer (0x02)",
+        12,
+        ttlv_bytes.len(),
+        "^AAAAAA0100000010BBBBBB02>>00<<0000050000000100000000$",
+    );
+
+    let ttlv_bytes = ttlv_bytes_with_invalid_integer_length();
+    let res = from_slice::<FlexibleRootType<bool>>(&ttlv_bytes);
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: Unexpected item type: TTLV type to deserialize into a bool should be Boolean (0x06) but found Integer (0x02)",
+        12,
+        ttlv_bytes.len(),
+        "^AAAAAA0100000010BBBBBB02>>00<<0000050000000100000000$",
+    );
+
+    let ttlv_bytes = ttlv_bytes_with_invalid_integer_length();
+    let res = from_slice::<FlexibleRootType<String>>(&ttlv_bytes);
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: Unexpected item type: TTLV type to deserialize into a String should be TextString (0x07) but found Integer (0x02)",
+        12,
+        ttlv_bytes.len(),
+        "^AAAAAA0100000010BBBBBB02>>00<<0000050000000100000000$",
+    );
+
+    let ttlv_bytes = ttlv_bytes_with_invalid_integer_length();
+    let res = from_slice::<ByteStringRootType>(&ttlv_bytes);
+    assert_err_msg(
+        res.unwrap_err(),
+        "Deserialization error: Unexpected item type: TTLV type to deserialize into a Vec<u8> should be ByteString (0x08) but found Integer (0x02)",
+        12,
+        ttlv_bytes.len(),
+        "^AAAAAA0100000010BBBBBB02>>00<<0000050000000100000000$",
+    );
 }

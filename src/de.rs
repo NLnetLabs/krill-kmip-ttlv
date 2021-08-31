@@ -436,7 +436,11 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             Ordering::Less => {}
             Ordering::Equal => return Ok(false),
             Ordering::Greater => {
-                return Err(self.error(&format!("buffer overrun: {} > {}", self.pos(), self.group_end.unwrap())))
+                return Err(Error::Other(format!(
+                    "Buffer overrun: {} > {}",
+                    self.pos(),
+                    self.group_end.unwrap()
+                )))
             }
         }
 
@@ -451,8 +455,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         } else {
             let field_index = self.group_item_count - 1;
             let expected_tag_str = self.group_fields.get(field_index).ok_or_else(|| {
-                self.error(&format!(
-                    "expected field index is out of bounds {} >= {}",
+                Error::Other(format!(
+                    "Expected field index is out of bounds {} >= {}",
                     field_index,
                     self.group_fields.len()
                 ))
@@ -490,7 +494,10 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         let (group_start, group_tag, group_type) = self.get_start_tag_type()?;
 
         if group_tag != wanted_tag {
-            return Err(self.error(&format!("Wanted tag '{}' but found '{}'", wanted_tag, group_tag)));
+            return Err(Error::Other(format!(
+                "Wanted tag '{}' but found '{}'",
+                wanted_tag, group_tag
+            )));
         }
 
         if group_type != ItemType::Structure {
@@ -577,6 +584,18 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
 
         Ok(false)
     }
+
+    fn build_unexpected_type_error_msg(&self, rust_type_name: &'static str, expected_ttlv_type: ItemType) -> Error {
+        let actual_ttlv_type = if self.item_type.is_some() {
+            self.item_type.unwrap().to_string()
+        } else {
+            "None".to_string()
+        };
+        Error::UnexpectedType(format!(
+            "TTLV type to deserialize into a {} should be {} but found {}",
+            rust_type_name, expected_ttlv_type, actual_ttlv_type,
+        ))
+    }
 }
 
 impl<'de: 'c, 'c> ContextualErrorSupport for TtlvDeserializer<'de, 'c> {
@@ -592,11 +611,14 @@ impl<'de: 'c, 'c> ContextualErrorSupport for TtlvDeserializer<'de, 'c> {
 macro_rules! unsupported_type {
     ($deserialize:ident, $type:ident) => {
         fn $deserialize<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value> {
-            Err(self.error(concat!(
-                "Deserializing TTLV to the Rust ",
-                stringify!($type),
-                " type is not supported."
-            )))
+            Err(Error::Other(
+                concat!(
+                    "Deserializing TTLV to the Rust ",
+                    stringify!($type),
+                    " type is not supported."
+                )
+                .into(),
+            ))
         }
     };
 }
@@ -940,7 +962,10 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
 
                 visitor.visit_enum(&mut *self) // jumps to impl EnumAccess below
             }
-            None => Err(self.error(&format!("TTLV item type for enum '{}' has not yet been read", name))),
+            None => Err(Error::Other(format!(
+                "TTLV item type for enum '{}' has not yet been read",
+                name
+            ))),
         }
     }
 
@@ -950,7 +975,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     {
         if let Some(identifier) = &self.item_identifier {
             visitor.visit_str(identifier).map_err(|err: Self::Error| {
-                self.error(&format!(
+                Error::Other(format!(
                     concat!(
                         "Serde was not expecting identifier '{}': {}. Tip: Ensure that the Rust type being ",
                         "deserialized into either has a member field with name '{}' or add attribute ",
@@ -960,7 +985,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
                 ))
             })
         } else {
-            Err(self.error("No identifier available!"))
+            Err(Error::Other("No identifier available!".into()))
         }
     }
 
@@ -968,8 +993,12 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
-        let v = TtlvInteger::read(&mut self.src)?;
-        visitor.visit_i32(*v)
+        if let Some(ItemType::Integer) = self.item_type {
+            let v = TtlvInteger::read(&mut self.src)?;
+            visitor.visit_i32(*v)
+        } else {
+            Err(self.build_unexpected_type_error_msg("i32", ItemType::Integer))
+        }
     }
 
     fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value>
@@ -985,11 +1014,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
                 let v = TtlvDateTime::read(&mut self.src)?;
                 visitor.visit_i64(*v)
             }
-            _ => Err(self.error(&format!(
-                "Cannot deserialize item type {:?} for tag {} as i64",
-                self.item_type.unwrap(),
-                self.item_tag.unwrap()
-            ))),
+            _ => Err(self.build_unexpected_type_error_msg("i64", ItemType::LongInteger)),
         }
     }
 
@@ -997,24 +1022,32 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
-        let v = TtlvBoolean::read(&mut self.src)?;
-        visitor.visit_bool(*v)
+        if let Some(ItemType::Boolean) = self.item_type {
+            let v = TtlvBoolean::read(&mut self.src)?;
+            visitor.visit_bool(*v)
+        } else {
+            Err(self.build_unexpected_type_error_msg("bool", ItemType::Boolean))
+        }
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        let v = TtlvTextString::read(&mut self.src)?;
-        let str = v.0;
+        if let Some(ItemType::TextString) = self.item_type {
+            let v = TtlvTextString::read(&mut self.src)?;
+            let str = v.0;
 
-        // Insert or replace the last value seen for this tag in our value lookup table
-        {
-            let mut map: RefMut<_> = self.tag_value_store.borrow_mut();
-            map.insert(self.item_tag.unwrap(), str.clone());
+            // Insert or replace the last value seen for this tag in our value lookup table
+            {
+                let mut map: RefMut<_> = self.tag_value_store.borrow_mut();
+                map.insert(self.item_tag.unwrap(), str.clone());
+            }
+
+            visitor.visit_string(str)
+        } else {
+            Err(self.build_unexpected_type_error_msg("String", ItemType::TextString))
         }
-
-        visitor.visit_string(str)
     }
 
     /// Use #[serde(with = "serde_bytes")] to direct Serde to this deserializer function for type Vec<u8>.
@@ -1022,8 +1055,12 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
-        let v = TtlvByteString::read(&mut self.src)?;
-        visitor.visit_byte_buf(v.0)
+        if let Some(ItemType::ByteString) = self.item_type {
+            let v = TtlvByteString::read(&mut self.src)?;
+            visitor.visit_byte_buf(v.0)
+        } else {
+            Err(self.build_unexpected_type_error_msg("Vec<u8>", ItemType::ByteString))
+        }
     }
 
     // dummy implementations of unsupported types so that we can give back a more useful error message than when using
@@ -1051,36 +1088,44 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
-        Err(self.error("Deserializing TTLV to Serde as ignored any is not supported."))
+        Err(Error::Other(
+            "Deserializing TTLV to Serde as ignored any is not supported.".into(),
+        ))
     }
 
     fn deserialize_unit_struct<V>(self, _name: &'static str, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(self.error("Deserializing TTLV to Serde as a unit struct is not supported."))
+        Err(Error::Other(
+            "Deserializing TTLV to Serde as a unit struct is not supported.".into(),
+        ))
     }
 
     fn deserialize_tuple_struct<V>(self, _name: &'static str, _len: usize, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(self.error("Deserializing TTLV to Serde as a tuple struct is not supported."))
+        Err(Error::Other(
+            "Deserializing TTLV to Serde as a tuple struct is not supported.".into(),
+        ))
     }
 
     fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(self.error("Deserializing TTLV to Serde as a tuple is not supported."))
+        Err(Error::Other(
+            "Deserializing TTLV to Serde as a tuple is not supported.".into(),
+        ))
     }
 
     fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(self.error(&format!(
-            "unsupported tag {} type {}",
+        Err(Error::Other(format!(
+            "Unsupported tag {} type {}",
             self.item_tag.unwrap(),
             self.item_type.unwrap() as u8
         )))
@@ -1202,6 +1247,8 @@ impl<'de: 'c, 'c> VariantAccess<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
-        Err(self.error("Deserializing TTLV to the Rust enum struct variant type is not supported."))
+        Err(Error::Other(
+            "Deserializing TTLV to the Rust enum struct variant type is not supported.".into(),
+        ))
     }
 }
