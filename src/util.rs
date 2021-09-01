@@ -13,7 +13,7 @@ use crate::types::{
 ///
 /// An example string for a successful KMIP 1.0 create symmetric key response could look like this:
 ///
-/// ```ignore
+/// ```text
 /// Tag: 0x42007B, Type: Structure (0x01), Data:
 ///   Tag: 0x42007A, Type: Structure (0x01), Data:
 ///     Tag: 0x420069, Type: Structure (0x01), Data:
@@ -47,7 +47,7 @@ pub fn to_string(bytes: &[u8]) -> String {
 ///
 /// An example diagnostic string for a successful KMIP 1.0 create symmetric key response could look like this:
 ///
-/// ```ignore
+/// ```text
 /// 7B[7A[69[6Ai6Bi]92d0Di]0F[5Ce17Fe07C[57e294t]]]
 /// ```
 ///
