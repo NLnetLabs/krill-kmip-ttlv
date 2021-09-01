@@ -218,9 +218,11 @@ pub mod de;
 pub mod error;
 pub mod ser;
 mod types;
+mod util;
 
 pub use de::{from_reader, from_slice, Config};
 pub use ser::{to_vec, to_writer};
+pub use util::to_string;
 
 #[cfg(test)]
 mod tests;
