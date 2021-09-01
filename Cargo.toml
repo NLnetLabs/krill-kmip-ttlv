@@ -14,7 +14,6 @@ build = "build.rs"
 
 [dependencies]
 hex = "0.4.3"
-log = "0.4.14"
 serde = "1.0.126"
 
 [build-dependencies]

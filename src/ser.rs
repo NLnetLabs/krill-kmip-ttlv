@@ -2,7 +2,6 @@
 
 use std::{fmt::Display, io::Write, str::FromStr};
 
-use log::{debug, error, trace};
 use serde::{
     ser::{self, Impossible, SerializeTupleStruct},
     Serialize,
@@ -14,22 +13,12 @@ use crate::{
     types::{self, ItemTag, ItemType, SerializableTtlvType, TtlvByteString, TtlvDateTime},
 };
 
-use log::log_enabled;
-use log::Level::Debug;
-
 // --- Public interface ------------------------------------------------------------------------------------------------
 
 pub fn to_vec<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     let mut ser = TtlvSerializer::new();
     value.serialize(&mut ser)?;
-    let bytes = ser.into_vec()?;
-
-    if log_enabled!(Debug) {
-        debug!("Serialized binary TTLV: {}", hex::encode_upper(&bytes));
-        debug!("{}", crate::de::to_string(&bytes));
-    }
-
-    Ok(bytes)
+    ser.into_vec()
 }
 
 pub fn to_writer<T, W>(value: &T, mut writer: W) -> Result<()>
@@ -131,8 +120,6 @@ impl TtlvSerializer {
 
             // Error, don't permit invalid things like TTVL etc.
             (expected, actual) => {
-                trace!("Serialized binary TTLV: {}", hex::encode_upper(&self.dst));
-                trace!("{}", crate::de::to_string(&self.dst));
                 return Err(Error::SerializeError(format!(
                     "Expected: {}, Actual: {}",
                     expected, actual
@@ -158,9 +145,7 @@ impl TtlvSerializer {
     /// by 3 bytes.
     fn write_tag(&mut self, item_tag: ItemTag, set_ignore_next_tag: bool) -> Result<()> {
         if self.advance_state(FieldType::Tag)? {
-            trace!("Writing tag {}", item_tag);
             self.dst.write_all(&<[u8; 3]>::from(item_tag))?;
-            trace!("Serialization buffer: {}", hex::encode_upper(&self.dst));
             if set_ignore_next_tag {
                 self.ignore_next_tag = true;
             }
@@ -199,7 +184,6 @@ impl TtlvSerializer {
             let len_to_write: u32 = (self.dst.len() - v_start_pos) as u32;
             let bytes_to_overwrite = &mut self.dst.as_mut_slice()[v_start_pos - 4..v_start_pos];
             bytes_to_overwrite.copy_from_slice(&len_to_write.to_be_bytes());
-            trace!("Rewriting len @ {} with value {:#X}", v_start_pos - 4, len_to_write);
         }
         Ok(())
     }
@@ -209,10 +193,6 @@ impl TtlvSerializer {
     fn finalize(&mut self) -> Result<()> {
         if !self.bookmarks.is_empty() {
             // This shouldn't happen.
-            error!(
-                "Length was not determined for one or more tags: Serialization buffer: {}",
-                hex::encode_upper(&self.dst)
-            );
             Err(Error::UnableToDetermineTtlvStructureLength)
         } else {
             Ok(())
@@ -240,7 +220,6 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     /// When using #[derive(Serialize)] you should use #[serde(rename = "0xAABBCC")] to cause the name argument value
     /// received here to be the TTLV tag value to use when serializing the structure to the write buffer.
     fn serialize_tuple_struct(self, name: &'static str, _len: usize) -> Result<Self::SerializeTupleStruct> {
-        trace!("Starting tuple struct");
         self.write_tag(ItemTag::from_str(name)?, false)?;
         self.write_type(ItemType::Structure)?;
         self.write_zero_len()?;
@@ -343,8 +322,6 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     /// }
     /// ```
     fn serialize_unit_variant(self, name: &'static str, _variant_index: u32, variant: &'static str) -> Result<()> {
-        trace!("Writing enum unit variant {}", name);
-
         // Don't write the tag if we just wrote a tag. This can happen in situations like this:
         //
         //   Tag: Template-Attribute (0x420091), Type: Structure (0x01), Data:
@@ -382,7 +359,6 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
-        trace!("Starting tuple variant");
         // The Override name prefix has no meaning in the case of a tuple variant, it only applies to a single inner
         // tagged value whose tag should be overriden. See serialize_newtype_variant().
         let name = if let Some(name) = name.strip_prefix("Override:") {
@@ -410,10 +386,6 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         // If the Override name prefix is present use the tag of this enum when writing the next item instead of that
         // items own tag.
         let (name, set_ignore_next_tag) = if let Some(name) = name.strip_prefix("Override:") {
-            trace!(
-                "Tag of enum '{}' will suppress the next tag that would normally have been serialized.",
-                name
-            );
             (name, true)
         } else {
             (name, false)
@@ -421,19 +393,9 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
 
         // If the variant name is "Transparent" serialize the inner value directly, don't wrap it in a TTLV Structure.
         if variant == "Transparent" {
-            trace!(
-                "Starting newtype variant as transparent single inner field: {} (of {})",
-                variant,
-                name
-            );
             self.write_tag(ItemTag::from_str(name)?, set_ignore_next_tag)?;
             value.serialize(self)
         } else {
-            trace!(
-                "Starting newtype variant as tuple variant: {} (of {}) --> ",
-                variant,
-                name
-            );
             let mut ser = self.serialize_tuple_variant(name, variant_index, variant, 1)?;
             ser.serialize_field(value)?;
             ser.end()
@@ -451,11 +413,9 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         T: Serialize,
     {
         if let Some(name) = name.strip_prefix("Transparent:") {
-            trace!("Starting newtype struct as transparent single inner field: {}", name);
             self.write_tag(ItemTag::from_str(name)?, false)?;
             value.serialize(self)
         } else {
-            trace!("Starting newtype struct as TTLV Structure: {} --> ", name);
             let mut ser = self.serialize_tuple_struct(name, 1)?;
             ser.serialize_field(value)?;
             ser.end()
@@ -486,7 +446,6 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     /// Dispatch serialization of a Rust sequence type such as Vec to the implementation of SerializeSeq that we
     /// provide.
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
-        trace!("Starting sequence");
         Ok(self)
     }
 
@@ -593,12 +552,10 @@ impl ser::SerializeSeq for &mut TtlvSerializer {
     where
         T: Serialize,
     {
-        trace!("Writing sequence element");
         value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<()> {
-        trace!("Ending sequence");
         Ok(())
     }
 }
@@ -614,12 +571,10 @@ impl ser::SerializeStruct for &mut TtlvSerializer {
     where
         T: Serialize,
     {
-        trace!("Writing struct element");
         value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<()> {
-        trace!("Ending struct: rewriting len");
         // This fn is called at the end of serializing a Struct.
         self.rewrite_len()
     }
@@ -636,12 +591,10 @@ impl ser::SerializeTupleStruct for &mut TtlvSerializer {
     where
         T: Serialize,
     {
-        trace!("Writing tuple struct element");
         value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<()> {
-        trace!("Ending tuple struct: rewriting len");
         // This fn is called at the end of serializing a Struct.
         self.rewrite_len()
     }
@@ -658,12 +611,10 @@ impl ser::SerializeTupleVariant for &mut TtlvSerializer {
     where
         T: Serialize,
     {
-        trace!("Writing tuple variant element");
         value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<Self::Ok> {
-        trace!("Ending tuple variant: rewriting len");
         // This fn is called at the end of serializing a tuple variant.
         // TODO: go back to the length byte pos in the vec and write in our distance from that point
         // Either we need to receive back from ... from where? we get no values passed to us, so instead we need to

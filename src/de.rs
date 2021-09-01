@@ -25,9 +25,6 @@ use crate::{
     },
 };
 
-use log::Level::Debug;
-use log::{debug, log_enabled};
-
 // --- Public interface ------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
@@ -60,14 +57,6 @@ pub fn from_slice<'de, T>(bytes: &'de [u8]) -> Result<T>
 where
     T: Deserialize<'de>,
 {
-    if log_enabled!(Debug) {
-        debug!("Binary TTLV to decode: {}", hex::encode_upper(bytes));
-    }
-
-    if log_enabled!(Debug) {
-        debug!("Binary TTLV in human readable form:\n{}", to_string(bytes));
-    }
-
     let cursor = &mut Cursor::new(bytes);
     let mut deserializer = TtlvDeserializer::from_slice(cursor);
     T::deserialize(&mut deserializer).map_err(|err| deserializer.error(err))
