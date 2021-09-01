@@ -315,8 +315,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     {
         let mut raw_item_type = [0u8; 1];
         src.read_exact(&mut raw_item_type)?;
-        let item_type =
-            TtlvType::try_from(raw_item_type[0]).map_err(|err| TtlvDeserializer::locationless_ttlv_error(err))?;
+        let item_type = TtlvType::try_from(raw_item_type[0]).map_err(TtlvDeserializer::locationless_ttlv_error)?;
         Ok(item_type)
     }
 
