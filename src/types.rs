@@ -105,7 +105,6 @@ impl TryFrom<u8> for TtlvType {
     }
 }
 
-
 impl From<TtlvType> for [u8; 1] {
     fn from(item_type: TtlvType) -> Self {
         [item_type as u8]

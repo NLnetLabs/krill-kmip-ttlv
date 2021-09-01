@@ -222,7 +222,7 @@ mod util;
 
 pub use de::{from_reader, from_slice, Config};
 pub use ser::{to_vec, to_writer};
-pub use util::{to_string, to_diag_string};
+pub use util::{to_diag_string, to_string};
 
 #[cfg(test)]
 mod tests;
