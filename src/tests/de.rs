@@ -1,5 +1,6 @@
 use crate::error::Error;
 use crate::tests::fixtures;
+use crate::tests::util::{make_limited_reader, make_reader, no_response_size_limit, reject_if_response_larger_than};
 use crate::{from_reader, from_slice, Config};
 
 #[allow(unused_imports)]
@@ -70,24 +71,15 @@ fn test_io_error_insufficient_read_buffer_size() {
 
     let full_input_byte_len = ttlv_bytes().len();
 
-    fn no_response_size_limit() -> Config {
-        Config::default()
-    }
-
-    fn reject_if_response_larger_than(max_bytes: u32) -> Config {
-        Config::default().with_max_bytes(max_bytes)
-    }
-
-    fn make_reader() -> impl std::io::Read {
-        std::io::Cursor::new(ttlv_bytes())
-    }
-
     // sanity check
-    assert!(from_reader::<RootType, _>(make_reader(), &no_response_size_limit()).is_ok());
+    assert!(from_reader::<RootType, _>(make_reader(ttlv_bytes()), &no_response_size_limit()).is_ok());
 
     // limit the read buffer to several insufficient lengths
     for max_readable_bytes in [0, 1, 2, 10] {
-        let res = from_reader::<RootType, _>(make_reader(), &reject_if_response_larger_than(max_readable_bytes));
+        let res = from_reader::<RootType, _>(
+            make_reader(ttlv_bytes()),
+            &reject_if_response_larger_than(max_readable_bytes),
+        );
 
         // Verify the error type
         assert!(matches!(res, Err(Error::InvalidLength(_))));
@@ -106,14 +98,12 @@ fn test_io_error_insufficient_read_buffer_size() {
 #[test]
 fn test_io_error_unexpected_eof_with_reader() {
     use fixtures::simple::*;
-    use std::io::Read; // for .take()
-
-    fn make_limited_reader(max_bytes: u64) -> impl std::io::Read {
-        std::io::Cursor::new(ttlv_bytes()).take(max_bytes)
-    }
 
     for max_readable_bytes in [0, 1, 2, 10] {
-        let res = from_reader::<RootType, _>(make_limited_reader(max_readable_bytes), &Config::default());
+        let res = from_reader::<RootType, _>(
+            make_limited_reader(ttlv_bytes(), max_readable_bytes),
+            &Config::default(),
+        );
         assert!(matches!(res, Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof));
     }
 }
