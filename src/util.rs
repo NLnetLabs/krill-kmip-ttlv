@@ -10,7 +10,62 @@ use crate::types::{
 };
 
 /// Interpret the given byte slice as TTLV as much as possible and render it to a String in human readable form.
+///
+/// An example string for a successful KMIP 1.0 create symmetric key response could look like this:
+///
+/// ```ignore
+/// Tag: 0x42007B, Type: Structure (0x01), Data:
+///   Tag: 0x42007A, Type: Structure (0x01), Data:
+///     Tag: 0x420069, Type: Structure (0x01), Data:
+///       Tag: 0x42006A, Type: Integer (0x02), Data: 0x000001 (1)
+///       Tag: 0x42006B, Type: Integer (0x02), Data: 0x000000 (0)
+///     Tag: 0x420092, Type: DateTime (0x09), Data: 0x4AFBE7C2
+///     Tag: 0x42000D, Type: Integer (0x02), Data: 0x000001 (1)
+///   Tag: 0x42000F, Type: Structure (0x01), Data:
+///     Tag: 0x42005C, Type: Enumeration (0x05), Data: 0x000001 (1)
+///     Tag: 0x42007F, Type: Enumeration (0x05), Data: 0x000000 (0)
+///     Tag: 0x42007C, Type: Structure (0x01), Data:
+///       Tag: 0x420057, Type: Enumeration (0x05), Data: 0x000002 (2)
+///       Tag: 0x420094, Type: TextString (0x07), Data: fc8833de-70d2-4ece-b063-fede3a3c59fe
+/// ```
+///
+/// For a more compact form that omits sensitive details see [to_diag_string()].
 pub fn to_string(bytes: &[u8]) -> String {
+    internal_to_string(bytes, false, String::new())
+}
+
+/// Interpret the given byte slice as TTLV as much as possible and render it to a String in compact diagnostic form.
+///
+/// It will contain only the tags, types, the tags hierarchical relationship to one another, and enum values but no
+/// other values (to avoid including sensitive data in the report). The format is compact and not intended for end
+/// users to interpret but rather to be included in problem reports to the vendor of the application using this
+/// library.
+///
+/// The `strip_tag_prefix` string argument can be used to further compact the created diagnostic string by removing the
+/// specified prefix from the hex representation of all TTLV tags. For example if used with the KMIP protocol one could
+/// strip "4200" from all tags as all official KMIP tags begin with 4200.
+///
+/// An example diagnostic string for a successful KMIP 1.0 create symmetric key response could look like this:
+///
+/// ```ignore
+/// 7B[7A[69[6Ai6Bi]92d0Di]0F[5Ce17Fe07C[57e294t]]]
+/// ```
+///
+/// This is a compact and desensitized form of the same response shown in the [to_string()] example. The `[` and
+/// `]` characters denote the start and end points of KMIP structures. The 4200 tag prefixes have been stripped in this
+/// example so each tag is two hex characters, e.g. `7B` is short for `0x42007B` which is the KMIP Response Message
+/// tag, and `7A` is the Response Header tag (0x42007A). Actual values are omitted except for their types (i - Integer,
+/// I - Big Integer, l - Long Integer, e - Enumeration, t - Text String, o - Byte String (o for Octal, etc).
+/// Enumeration values are included in hexadecimal form, e.g. `5Ce1` is tag 0x42005C Operation, `e` denotes that this
+/// is an Enumeration and its value `1` i.e. 0x00000001 indicates that it was a Create operation.
+///
+/// Such diagnostic strings could be useful to generate for all TTLV requests and responses in order to store the last
+/// N in memory and be able to dump them out if a TTLV related problem occurs, and/or to log at debug or trace level.
+pub fn to_diag_string(bytes: &[u8], strip_tag_prefix: String) -> String {
+    internal_to_string(bytes, true, strip_tag_prefix)
+}
+
+fn internal_to_string(bytes: &[u8], diagnostic_report: bool, strip_tag_prefix: String) -> String {
     let mut indent: usize = 0;
     let mut report = String::new();
     let mut struct_ends = Vec::<u64>::new();
@@ -27,26 +82,49 @@ pub fn to_string(bytes: &[u8]) -> String {
     /// On success returns the human readable string representation of the parsed TTLV item and if it was a "Structure"
     /// header also returns the byte length of the structure that follows. If the bytes in the stream at the cursor
     /// position are not valid TTLV an error will be returned.
-    fn deserialize_ttlv_to_string(mut cursor: &mut Cursor<&[u8]>) -> Result<(String, Option<u64>)> {
+    fn deserialize_ttlv_to_string(
+        mut cursor: &mut Cursor<&[u8]>,
+        diagnostic_report: bool,
+        strip_tag_prefix: &str,
+    ) -> Result<(String, Option<u64>)> {
         let tag = TtlvDeserializer::read_tag(&mut cursor)?;
         let typ = TtlvDeserializer::read_type(&mut cursor)?;
         let mut len = Option::<u64>::None;
         const EMPTY_STRING: String = String::new();
 
-        #[rustfmt::skip]
-        let data = match typ {
-            TtlvType::Structure   => { len = Some(TtlvDeserializer::read_length(cursor)? as u64); EMPTY_STRING }
-            TtlvType::Integer     => { format!(" {data:#08X} ({data})", data = TtlvInteger::read(cursor)?.deref()) }
-            TtlvType::LongInteger => { format!(" {data:#08X} ({data})", data = TtlvLongInteger::read(cursor)?.deref()) }
-            TtlvType::BigInteger  => { format!(" {data}", data = hex::encode_upper(&TtlvBigInteger::read(cursor)?.deref())) }
-            TtlvType::Enumeration => { format!(" {data:#08X} ({data})", data = TtlvEnumeration::read(cursor)?.deref()) }
-            TtlvType::Boolean     => { format!(" {data}", data = TtlvBoolean::read(cursor)?.deref()) }
-            TtlvType::TextString  => { format!(" {data}", data = TtlvTextString::read(cursor)?.deref()) }
-            TtlvType::ByteString  => { format!(" {data}", data = hex::encode_upper(&TtlvByteString::read(cursor)?.deref())) }
-            TtlvType::DateTime    => { format!(" {data:#08X}", data = TtlvDateTime::read(cursor)?.deref()) }
-        };
+        let fragment = if !diagnostic_report {
+            #[rustfmt::skip]
+            let data = match typ {
+                TtlvType::Structure   => { len = Some(TtlvDeserializer::read_length(cursor)? as u64); EMPTY_STRING }
+                TtlvType::Integer     => { format!(" {data:#08X} ({data})", data = TtlvInteger::read(cursor)?.deref()) }
+                TtlvType::LongInteger => { format!(" {data:#08X} ({data})", data = TtlvLongInteger::read(cursor)?.deref()) }
+                TtlvType::BigInteger  => { format!(" {data}", data = hex::encode_upper(&TtlvBigInteger::read(cursor)?.deref())) }
+                TtlvType::Enumeration => { format!(" {data:#08X} ({data})", data = TtlvEnumeration::read(cursor)?.deref()) }
+                TtlvType::Boolean     => { format!(" {data}", data = TtlvBoolean::read(cursor)?.deref()) }
+                TtlvType::TextString  => { format!(" {data}", data = TtlvTextString::read(cursor)?.deref()) }
+                TtlvType::ByteString  => { format!(" {data}", data = hex::encode_upper(&TtlvByteString::read(cursor)?.deref())) }
+                TtlvType::DateTime    => { format!(" {data:#08X}", data = TtlvDateTime::read(cursor)?.deref()) }
+            };
 
-        let fragment = format!("Tag: Unknown ({:#06X}), Type: {}, Data:{}\n", *tag, typ, data);
+            format!("Tag: {:#06X}, Type: {}, Data:{}\n", *tag, typ, data)
+        } else {
+            #[rustfmt::skip]
+            let data = match typ {
+                TtlvType::Structure   => { len = Some(TtlvDeserializer::read_length(cursor)? as u64); EMPTY_STRING }
+                TtlvType::Integer     => { TtlvInteger::read(cursor)?; "i".to_string() }
+                TtlvType::LongInteger => { TtlvLongInteger::read(cursor)?; "l".to_string() }
+                TtlvType::BigInteger  => { TtlvBigInteger::read(cursor)?; "I".to_string() }
+                TtlvType::Enumeration => { format!("e{data:X}", data = TtlvEnumeration::read(cursor)?.deref()) }
+                TtlvType::Boolean     => { TtlvBoolean::read(cursor)?; "b".to_string() }
+                TtlvType::TextString  => { TtlvTextString::read(cursor)?; "t".to_string() }
+                TtlvType::ByteString  => { TtlvByteString::read(cursor)?; "o".to_string() }
+                TtlvType::DateTime    => { TtlvDateTime::read(cursor)?; "d".to_string() }
+            };
+
+            let tag = format!("{:06X}", *tag);
+            let tag = tag.strip_prefix(&strip_tag_prefix).unwrap_or(&tag);
+            format!("{}{}", tag, data)
+        };
 
         Ok((fragment, len))
     }
@@ -68,10 +146,17 @@ pub fn to_string(bytes: &[u8]) -> String {
                 Ordering::Equal => {
                     // End of current (sub)structure reached, outdent and use end of parent structure as next struct end
                     if let Some(end) = struct_ends.pop() {
-                        indent -= 2;
+                        if !diagnostic_report {
+                            indent -= 2;
+                        } else {
+                            report.push(']');
+                        }
                         cur_struct_end = Some(end);
                     } else {
                         // No more parent structures, we have finished processing the TTLV bytes
+                        if diagnostic_report {
+                            report.push(']');
+                        }
                         return report;
                     }
                 }
@@ -86,20 +171,28 @@ pub fn to_string(bytes: &[u8]) -> String {
         }
 
         // Deserialize the next TTLV in the input to a human readable string
-        match deserialize_ttlv_to_string(&mut cursor) {
+        match deserialize_ttlv_to_string(&mut cursor, diagnostic_report, &strip_tag_prefix) {
             Ok((ttlv_string, possible_new_struct_len)) => {
                 // Add (with correct indentation) the human readable result of deserialization to the "report" built up
                 // so far.
-                report.push_str(&format!(
-                    "{:width$}{ttlv_string}",
-                    "",
-                    width = indent,
-                    ttlv_string = &ttlv_string
-                ));
+                if !diagnostic_report {
+                    report.push_str(&format!(
+                        "{:width$}{ttlv_string}",
+                        "",
+                        width = indent,
+                        ttlv_string = &ttlv_string
+                    ));
+                } else {
+                    report.push_str(&ttlv_string);
+                }
 
                 // Handle descent into an inner TTLV "Structure"
                 if let Some(new_len) = possible_new_struct_len {
-                    indent += 2;
+                    if !diagnostic_report {
+                        indent += 2;
+                    } else {
+                        report.push('[');
+                    }
 
                     if let Some(cur_end) = cur_struct_end {
                         // We have started processing a new child structure, remember the end of the parent structure we
@@ -113,7 +206,9 @@ pub fn to_string(bytes: &[u8]) -> String {
                         // an error before we were able to go back into the byte stream to rewrite the structure length
                         // once the length was known. Note: this can also be correct, it might actually be an empty
                         // structure, but we cannot distinguish between the two cases.
-                        report.push_str("WARNING: TTLV structure length is zero\n");
+                        if !diagnostic_report {
+                            report.push_str("WARNING: TTLV structure length is zero\n");
+                        }
                         broken = true;
                     } else {
                         cur_struct_end = Some(cursor.position() + new_len);
@@ -122,12 +217,16 @@ pub fn to_string(bytes: &[u8]) -> String {
             }
             Err(err) => {
                 // Oops, we couldn't deserialize a TTLV from the input stream at the current cursor position
-                report.push_str(&format!(
-                    "ERROR: {} (cursor pos={}, end={:?})",
-                    err,
-                    cursor.position(),
-                    cur_struct_end
-                ));
+                if !diagnostic_report {
+                    report.push_str(&format!(
+                        "ERROR: {} (cursor pos={}, end={:?})",
+                        err,
+                        cursor.position(),
+                        cur_struct_end
+                    ));
+                } else {
+                    report.push_str("ERR");
+                }
                 return report;
             }
         }
