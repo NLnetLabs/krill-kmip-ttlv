@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::error::{Error, Result};
+use crate::error::{Error, ErrorLocation, MalformedTtlvError, Result, SerdeError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ItemTag(u32);
@@ -19,16 +19,11 @@ impl Deref for ItemTag {
 }
 
 impl FromStr for ItemTag {
-    type Err = Error;
+    type Err = SerdeError;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        let v = u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|err| {
-            Error::InvalidTag(format!(
-                "Item tag '{}' should be a 0xNNNNNN numeric hex value defined with #[serde(rename = \"0xNNNNNNN\")]: {}",
-                s,
-                err.to_string()
-            ))
-        })?;
+        let v =
+            u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|_| SerdeError::InvalidTag(s.to_string()))?;
         Ok(ItemTag(v))
     }
 }
@@ -52,28 +47,6 @@ impl From<&ItemTag> for [u8; 3] {
     }
 }
 
-impl TryFrom<&[u8]> for ItemTag {
-    type Error = Error;
-
-    fn try_from(b: &[u8]) -> std::result::Result<Self, Self::Error> {
-        fn strip_leading_zeros(b: &[u8]) -> &[u8] {
-            b.iter().position(|&x| x != 0).map_or(b, |p| &b[p..])
-        }
-
-        let b = strip_leading_zeros(b);
-
-        if b.len() != 3 {
-            Err(Error::InvalidTag(format!(
-                "'An Item Tag is a three-byte binary unsigned integer' but '{:?}' is {} bytes in length",
-                b,
-                b.len()
-            )))
-        } else {
-            Ok(ItemTag(u32::from_be_bytes([0u8, b[0], b[1], b[2]])))
-        }
-    }
-}
-
 impl From<[u8; 3]> for ItemTag {
     fn from(b: [u8; 3]) -> Self {
         ItemTag(u32::from_be_bytes([0x00u8, b[0], b[1], b[2]]))
@@ -82,7 +55,7 @@ impl From<[u8; 3]> for ItemTag {
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum ItemType {
+pub enum TtlvType {
     Structure = 0x01,
     Integer = 0x02,
     LongInteger = 0x03,
@@ -95,54 +68,46 @@ pub enum ItemType {
     // Interval = 0x0A,
 }
 
-impl std::fmt::Display for ItemType {
+impl std::fmt::Display for TtlvType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ItemType::Structure => f.write_str("Structure (0x01)"),
-            ItemType::Integer => f.write_str("Integer (0x02)"),
-            ItemType::LongInteger => f.write_str("LongInteger (0x03)"),
-            ItemType::BigInteger => f.write_str("BigInteger (0x04)"),
-            ItemType::Enumeration => f.write_str("Enumeration (0x05)"),
-            ItemType::Boolean => f.write_str("Boolean (0x06)"),
-            ItemType::TextString => f.write_str("TextString (0x07)"),
-            ItemType::ByteString => f.write_str("ByteString (0x08)"),
-            ItemType::DateTime => f.write_str("DateTime (0x09)"),
+            TtlvType::Structure => f.write_str("Structure (0x01)"),
+            TtlvType::Integer => f.write_str("Integer (0x02)"),
+            TtlvType::LongInteger => f.write_str("LongInteger (0x03)"),
+            TtlvType::BigInteger => f.write_str("BigInteger (0x04)"),
+            TtlvType::Enumeration => f.write_str("Enumeration (0x05)"),
+            TtlvType::Boolean => f.write_str("Boolean (0x06)"),
+            TtlvType::TextString => f.write_str("TextString (0x07)"),
+            TtlvType::ByteString => f.write_str("ByteString (0x08)"),
+            TtlvType::DateTime => f.write_str("DateTime (0x09)"),
         }
     }
 }
 
-impl TryFrom<u8> for ItemType {
-    type Error = Error;
+impl TryFrom<u8> for TtlvType {
+    type Error = MalformedTtlvError;
 
-    fn try_from(value: u8) -> Result<Self> {
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         match value {
-            0x01 => Ok(ItemType::Structure),
-            0x02 => Ok(ItemType::Integer),
-            0x03 => Ok(ItemType::LongInteger),
-            0x04 => Ok(ItemType::BigInteger),
-            0x05 => Ok(ItemType::Enumeration),
-            0x06 => Ok(ItemType::Boolean),
-            0x07 => Ok(ItemType::TextString),
-            0x08 => Ok(ItemType::ByteString),
-            0x09 => Ok(ItemType::DateTime),
+            0x01 => Ok(TtlvType::Structure),
+            0x02 => Ok(TtlvType::Integer),
+            0x03 => Ok(TtlvType::LongInteger),
+            0x04 => Ok(TtlvType::BigInteger),
+            0x05 => Ok(TtlvType::Enumeration),
+            0x06 => Ok(TtlvType::Boolean),
+            0x07 => Ok(TtlvType::TextString),
+            0x08 => Ok(TtlvType::ByteString),
+            0x09 => Ok(TtlvType::DateTime),
             // 0x0A => Ok(ItemType::Interval),
-            _ => Err(Error::Other(format!("No known ItemType has u8 value {}", value))),
+            0x0A => Err(MalformedTtlvError::UnsupportedType(0x0A)),
+            _ => Err(MalformedTtlvError::InvalidType(value)),
         }
     }
 }
 
-impl FromStr for ItemType {
-    type Err = Error;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        let v = u8::from_str_radix(s.trim_start_matches("0x"), 16)
-            .map_err(|err| Error::InvalidType(format!("Cannot parse hexadecimal item type value '{}': {}", s, err)))?;
-        ItemType::try_from(v)
-    }
-}
-
-impl From<ItemType> for [u8; 1] {
-    fn from(item_type: ItemType) -> Self {
+impl From<TtlvType> for [u8; 1] {
+    fn from(item_type: TtlvType) -> Self {
         [item_type as u8]
     }
 }
@@ -175,7 +140,7 @@ impl From<ItemType> for [u8; 1] {
 // Value.
 //
 pub trait SerializableTtlvType: Sized + Deref {
-    const TTLV_TYPE: ItemType;
+    const TTLV_TYPE: TtlvType;
 
     fn calc_pad_bytes(value_len: u32) -> u32 {
         // pad to the next higher multiple of eight
@@ -254,16 +219,18 @@ macro_rules! define_fixed_value_length_serializable_ttlv_type {
             }
         }
         impl SerializableTtlvType for $NEW_TYPE_NAME {
-            const TTLV_TYPE: ItemType = $TTLV_ITEM_TYPE;
+            const TTLV_TYPE: TtlvType = $TTLV_ITEM_TYPE;
 
             fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
                 if value_len != Self::TTLV_FIXED_VALUE_LENGTH {
-                    Err(Error::InvalidLength(format!(
-                        "Item length is {} but for type {} it should be {}",
-                        value_len,
-                        stringify!($NEW_TYPE_NAME),
-                        Self::TTLV_FIXED_VALUE_LENGTH
-                    )))
+                    Err(Error::MalformedTtlv {
+                        error: MalformedTtlvError::InvalidLength {
+                            expected: Self::TTLV_FIXED_VALUE_LENGTH,
+                            actual: value_len,
+                            r#type: Self::TTLV_TYPE,
+                        },
+                        location: ErrorLocation { offset: None },
+                    })
                 } else {
                     let mut dst = [0u8; Self::TTLV_FIXED_VALUE_LENGTH as usize];
                     src.read_exact(&mut dst)?;
@@ -285,13 +252,13 @@ macro_rules! define_fixed_value_length_serializable_ttlv_type {
 // ===========================================
 // "Integers are encoded as four-byte long (32 bit) binary signed numbers in 2's complement notation,
 //  transmitted big-endian."
-define_fixed_value_length_serializable_ttlv_type!(TtlvInteger, ItemType::Integer, i32, 4);
+define_fixed_value_length_serializable_ttlv_type!(TtlvInteger, TtlvType::Integer, i32, 4);
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Long Integer
 // ================================================
 // "Long Integers are encoded as eight-byte long (64 bit) binary signed numbers in 2's complement
 //  notation, transmitted big-endian."
-define_fixed_value_length_serializable_ttlv_type!(TtlvLongInteger, ItemType::LongInteger, i64, 8);
+define_fixed_value_length_serializable_ttlv_type!(TtlvLongInteger, TtlvType::LongInteger, i64, 8);
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Big Integer
 // ===============================================
@@ -310,7 +277,7 @@ impl Deref for TtlvBigInteger {
     }
 }
 impl SerializableTtlvType for TtlvBigInteger {
-    const TTLV_TYPE: ItemType = ItemType::BigInteger;
+    const TTLV_TYPE: TtlvType = TtlvType::BigInteger;
 
     fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
         let mut dst = vec![0; value_len as usize];
@@ -344,7 +311,7 @@ impl SerializableTtlvType for TtlvBigInteger {
 // "Enumerations are encoded as four-byte long (32 bit) binary unsigned numbers transmitted big-
 //  endian. Extensions, which are permitted, but are not defined in this specification, contain the
 //  value 8 hex in the first nibble of the first byte."
-define_fixed_value_length_serializable_ttlv_type!(TtlvEnumeration, ItemType::Enumeration, u32, 4);
+define_fixed_value_length_serializable_ttlv_type!(TtlvEnumeration, TtlvType::Enumeration, u32, 4);
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Boolean
 // ===========================================
@@ -366,25 +333,28 @@ impl Deref for TtlvBoolean {
     }
 }
 impl SerializableTtlvType for TtlvBoolean {
-    const TTLV_TYPE: ItemType = ItemType::Boolean;
+    const TTLV_TYPE: TtlvType = TtlvType::Boolean;
 
     fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
         if value_len != Self::TTLV_FIXED_VALUE_LENGTH {
-            Err(Error::InvalidLength(format!(
-                "Item length is {} but for type TtlvBoolean it should be {}",
-                value_len,
-                Self::TTLV_FIXED_VALUE_LENGTH
-            )))
+            Err(Error::MalformedTtlv {
+                error: MalformedTtlvError::InvalidLength {
+                    expected: Self::TTLV_FIXED_VALUE_LENGTH,
+                    actual: value_len,
+                    r#type: Self::TTLV_TYPE,
+                },
+                location: ErrorLocation { offset: None },
+            })
         } else {
             let mut dst = [0u8; Self::TTLV_FIXED_VALUE_LENGTH as usize];
             src.read_exact(&mut dst)?;
             match u64::from_be_bytes(dst) {
                 0 => Ok(TtlvBoolean(false)),
                 1 => Ok(TtlvBoolean(true)),
-                n => Err(Error::Other(format!(
-                    "TtlvBoolean value must be 0 or 1 but found {}",
-                    n
-                ))),
+                _ => Err(Error::MalformedTtlv {
+                    error: MalformedTtlvError::InvalidValue,
+                    location: ErrorLocation { offset: None },
+                }),
             }
         }
     }
@@ -416,7 +386,7 @@ impl Deref for TtlvTextString {
     }
 }
 impl SerializableTtlvType for TtlvTextString {
-    const TTLV_TYPE: ItemType = ItemType::TextString;
+    const TTLV_TYPE: TtlvType = TtlvType::TextString;
 
     fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
         // Read the UTF-8 bytes, without knowing if they are valid UTF-8
@@ -425,7 +395,10 @@ impl SerializableTtlvType for TtlvTextString {
 
         // Use the bytes as-is as the internal buffer for a String, verifying that the bytes are indeed valid
         // UTF-8
-        let new_str = String::from_utf8(dst).map_err(|err| Error::InvalidUtf8(err.to_string()))?;
+        let new_str = String::from_utf8(dst).map_err(|_| Error::MalformedTtlv {
+            error: MalformedTtlvError::InvalidValue,
+            location: ErrorLocation { offset: None },
+        })?;
 
         Ok(TtlvTextString(new_str))
     }
@@ -455,7 +428,7 @@ impl Deref for TtlvByteString {
     }
 }
 impl SerializableTtlvType for TtlvByteString {
-    const TTLV_TYPE: ItemType = ItemType::ByteString;
+    const TTLV_TYPE: TtlvType = TtlvType::ByteString;
 
     fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
         // Read the UTF-8 bytes, without knowing if they are valid UTF-8
@@ -478,7 +451,7 @@ impl SerializableTtlvType for TtlvByteString {
 // "Date-Time values are POSIX Time values encoded as Long Integers. POSIX Time, as described
 //  in IEEE Standard 1003.1 [IEEE1003-1], is the number of seconds since the Epoch (1970 Jan 1,
 //  00:00:00 UTC), not counting leap seconds."
-define_fixed_value_length_serializable_ttlv_type!(TtlvDateTime, ItemType::DateTime, i64, 8);
+define_fixed_value_length_serializable_ttlv_type!(TtlvDateTime, TtlvType::DateTime, i64, 8);
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Interval
 // ============================================
@@ -495,7 +468,9 @@ mod test {
 
     use std::{io::Cursor, str::FromStr};
 
-    use crate::types::{ItemTag, ItemType, SerializableTtlvType};
+    use crate::types::{ItemTag, SerializableTtlvType, TtlvType};
+
+    use assert_matches::assert_matches;
 
     use super::*;
 
@@ -514,7 +489,6 @@ mod test {
         assert!(ItemTag::from_str("").is_err());
         assert!(ItemTag::from_str("    ").is_err());
         assert!(ItemTag::from_str("XYZ").is_err());
-        assert!(ItemType::from_str("-1").is_err());
 
         #[allow(non_snake_case)]
         let ZERO_TAG = ItemTag::from([0x00u8, 0x00u8, 0x00u8]);
@@ -559,35 +533,24 @@ mod test {
         //
         //         Table 191: Allowed Item Type Values
 
-        assert!(ItemType::from_str("").is_err());
-        assert!(ItemType::from_str("    ").is_err());
-        assert!(ItemType::from_str("XYZ").is_err());
-
-        assert!(ItemType::from_str("-1").is_err());
-        assert!(ItemType::from_str("0").is_err());
-        assert!(matches!(ItemType::from_str("0x01").unwrap(), ItemType::Structure));
-        assert!(matches!(ItemType::from_str("0x02").unwrap(), ItemType::Integer));
-        assert!(matches!(ItemType::from_str("0x03").unwrap(), ItemType::LongInteger));
-        assert!(matches!(ItemType::from_str("0x04").unwrap(), ItemType::BigInteger));
-        assert!(matches!(ItemType::from_str("0x05").unwrap(), ItemType::Enumeration));
-        assert!(matches!(ItemType::from_str("0x06").unwrap(), ItemType::Boolean));
-        assert!(matches!(ItemType::from_str("0x07").unwrap(), ItemType::TextString));
-        assert!(matches!(ItemType::from_str("0x08").unwrap(), ItemType::ByteString));
-        assert!(matches!(ItemType::from_str("0x09").unwrap(), ItemType::DateTime));
-
-        assert_eq!(ItemType::from_str("0x01").unwrap(), ItemType::try_from(0x01).unwrap());
-        assert_eq!(ItemType::from_str("0x02").unwrap(), ItemType::try_from(0x02).unwrap());
-        assert_eq!(ItemType::from_str("0x03").unwrap(), ItemType::try_from(0x03).unwrap());
-        assert_eq!(ItemType::from_str("0x04").unwrap(), ItemType::try_from(0x04).unwrap());
-        assert_eq!(ItemType::from_str("0x05").unwrap(), ItemType::try_from(0x05).unwrap());
-        assert_eq!(ItemType::from_str("0x06").unwrap(), ItemType::try_from(0x06).unwrap());
-        assert_eq!(ItemType::from_str("0x07").unwrap(), ItemType::try_from(0x07).unwrap());
-        assert_eq!(ItemType::from_str("0x08").unwrap(), ItemType::try_from(0x08).unwrap());
-        assert_eq!(ItemType::from_str("0x09").unwrap(), ItemType::try_from(0x09).unwrap());
+        assert_matches!(TtlvType::try_from(0x00), Err(MalformedTtlvError::InvalidType(0x00)));
+        assert_matches!(TtlvType::try_from(0x01), Ok(TtlvType::Structure));
+        assert_matches!(TtlvType::try_from(0x02), Ok(TtlvType::Integer));
+        assert_matches!(TtlvType::try_from(0x03), Ok(TtlvType::LongInteger));
+        assert_matches!(TtlvType::try_from(0x04), Ok(TtlvType::BigInteger));
+        assert_matches!(TtlvType::try_from(0x05), Ok(TtlvType::Enumeration));
+        assert_matches!(TtlvType::try_from(0x06), Ok(TtlvType::Boolean));
+        assert_matches!(TtlvType::try_from(0x07), Ok(TtlvType::TextString));
+        assert_matches!(TtlvType::try_from(0x08), Ok(TtlvType::ByteString));
+        assert_matches!(TtlvType::try_from(0x09), Ok(TtlvType::DateTime));
 
         // Interval is not yet implemented
-        assert!(ItemType::from_str("0x0A").is_err());
-        // assert_eq!(ItemType::from_str("0x02").unwrap(), ItemType::try_from(0x0A).unwrap());
+        assert_matches!(TtlvType::try_from(0x0A), Err(MalformedTtlvError::UnsupportedType(0x0A)));
+
+        // All other values are invalid
+        for i in 0x0B..0xFF {
+            assert_matches!(TtlvType::try_from(i), Err(MalformedTtlvError::InvalidType(n)) if n == i);
+        }
     }
 
     fn spec_ttlv_to_vec_tlv(s: &str) -> Vec<u8> {

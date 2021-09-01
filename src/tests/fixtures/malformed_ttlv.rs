@@ -1,5 +1,7 @@
 use serde_derive::Deserialize;
 
+use crate::types::TtlvType;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename = "0xAAAAAA")]
 pub(crate) struct RootType {
@@ -25,13 +27,21 @@ pub(crate) struct ByteStringRootType {
 }
 
 pub(crate) fn ttlv_bytes_with_invalid_type() -> Vec<u8> {
-    let test_data = "AAAAAA  00  00000020";
+    let test_data = format!("AAAAAA  {:02X}  00000020", invalid_type());
     hex::decode(test_data.replace(" ", "")).unwrap()
 }
 
+pub(crate) fn invalid_type() -> u8 {
+    0
+}
+
 pub(crate) fn ttlv_bytes_with_wrong_root_type() -> Vec<u8> {
-    let test_data = "AAAAAA  02  00000020";
+    let test_data = format!("AAAAAA  {:02X}  00000020", wrong_root_type() as u8);
     hex::decode(test_data.replace(" ", "")).unwrap()
+}
+
+pub(crate) fn wrong_root_type() -> TtlvType {
+    TtlvType::Integer
 }
 
 pub(crate) fn ttlv_bytes_with_length_overflow() -> Vec<u8> {
@@ -51,18 +61,6 @@ pub(crate) fn ttlv_bytes_with_invalid_integer_length() -> Vec<u8> {
     let struct_hdr = "AAAAAA  01  00000010";
     let raw_ints = [
         "BBBBBB  02  00000005  00000001  00000000", // integers must have 4 bytes of value padded to 8 bytes in total, not 5 bytes of value!
-    ];
-    let mut test_data = String::new();
-    test_data.push_str(struct_hdr);
-    test_data.push_str(&raw_ints.join(""));
-
-    hex::decode(test_data.replace(" ", "")).unwrap()
-}
-
-pub(crate) fn ttlv_bytes_with_invalid_long_integer_length() -> Vec<u8> {
-    let struct_hdr = "AAAAAA  01  00000010";
-    let raw_ints = [
-        "BBBBBB  03  00000005  00000001  00000000", // long integers must be 8 bytes long, not 5!
     ];
     let mut test_data = String::new();
     test_data.push_str(struct_hdr);

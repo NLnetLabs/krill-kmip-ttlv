@@ -1,35 +1,79 @@
 //! When serializing or deserializing TTLV data goes wrong.
 
-use std::{fmt::Debug, fmt::Display, num::ParseIntError};
+use std::{fmt::Debug, fmt::Display};
 
-use crate::types::{ItemTag, ItemType};
+use crate::types::{ItemTag, TtlvType};
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+pub type ByteOffset = u64;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FieldType {
+    Tag,
+    Type,
+    Length,
+    Value,
+    TypeAndLengthAndValue,
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum MalformedTtlvError {
+    InvalidType(u8),
+    InvalidLength {
+        expected: u32,
+        actual: u32,
+        r#type: TtlvType,
+    },
+    InvalidValue, // we deliberately don't include the invalid bytes as they could be sensitive
+    UnexpectedTtlvField {
+        expected: FieldType,
+        actual: FieldType,
+    },
+    UnexpectedType {
+        expected: TtlvType,
+        actual: TtlvType,
+    },
+    UnsupportedType(u8),
+    Overflow {
+        field_end: ByteOffset,
+    },
+    UnknownStructureLength,
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum SerdeError {
+    InvalidVariant(&'static str),
+    InvalidTag(String), // a tag should be numeric i.e. 0xNNNNNN but we get it from the Rust type name via Serde so it can be any string
+    UnexpectedTag { expected: ItemTag, actual: ItemTag },
+    UnexpectedType { expected: TtlvType, actual: TtlvType },
+    UnsupportedRustType(&'static str),
+    MissingField, // todo: add more metadata here?
+    MissingIdentifier,
+    Other, // todo: add more metadata here?
+}
+
+#[derive(Debug)]
+pub struct ErrorLocation {
+    pub offset: Option<ByteOffset>,
+    // TODO: include something here about current tag and/or parent tag chain
+}
 
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
-    // TODO: use named struct fields
-    DeserializeError {
-        ctx: String,
-        pos: usize,
-        len: usize,
-        msg: String,
-    },
-    SerializeError(String),
     IoError(std::io::Error),
-    InsufficientBytes,
-    InvalidTag(String),
-    InvalidType(String),
-    InvalidLength(String),
-    InvalidUtf8(String),
-    UnableToDetermineTtlvStructureLength,
-    ParseError(ItemTag),
-    UnexpectedTtlvTag(ItemTag, String),
-    UnexpectedTtlvType(ItemType, u8),
-    UnexpectedType(String),
-    UnsupportedType(&'static str),
-    Other(String),
+    ResponseSizeExceedsLimit(usize),
+    MalformedTtlv {
+        error: MalformedTtlvError,
+        location: ErrorLocation,
+    },
+    SerdeError {
+        error: SerdeError,
+        location: ErrorLocation,
+    },
 }
 
 impl From<std::io::Error> for Error {
@@ -38,43 +82,20 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<ParseIntError> for Error {
-    fn from(e: ParseIntError) -> Self {
-        Error::Other(format!("Parse error: {}", e))
-    }
-}
-
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::DeserializeError { ctx, pos, len, msg } => f.write_fmt(format_args!(
-                "Deserialization error: {} at position {}/{} with context: {}",
-                msg, pos, len, ctx
-            )),
-            Error::SerializeError(err) => f.write_fmt(format_args!("Serialization error: {}", err)),
             Error::IoError(err) => f.write_fmt(format_args!("IO error ({:?}: {})", err.kind(), err)),
-            Error::InsufficientBytes => f.write_str("Insufficient bytes"),
-            Error::InvalidTag(err) => f.write_fmt(format_args!("Invalid item tag: {}", err)),
-            Error::InvalidType(err) => f.write_fmt(format_args!("Invalid item ype: {}", err)),
-            Error::InvalidLength(err) => f.write_fmt(format_args!("Invalid item length: {}", err)),
-            Error::InvalidUtf8(err) => f.write_fmt(format_args!("Invalid UTF-8: {}", err)),
-            Error::UnableToDetermineTtlvStructureLength => {
-                f.write_str("The length of one or more TTLV structures could not be determined.")
+            Error::ResponseSizeExceedsLimit(size) => {
+                f.write_fmt(format_args!("Response size {} exceeds the configured limit", size))
             }
-            Error::ParseError(item_tag) => f.write_fmt(format_args!("Failed to parse TTLV tag '{:#0X?}'", item_tag)),
-            Error::UnexpectedTtlvTag(item_tag, found) => f.write_fmt(format_args!(
-                "Unexpected TTLV tag: expected={}, found={}",
-                item_tag, found
+            Error::MalformedTtlv { error, location } => f.write_fmt(format_args!(
+                "Malformed TTLV at offset {:?}: {:?}",
+                location.offset, error
             )),
-            Error::UnexpectedTtlvType(item_type, found) => {
-                f.write_fmt(format_args!("Unexpected TTLV type '{:?}' failed: {}", item_type, found))
+            Error::SerdeError { error, location } => {
+                f.write_fmt(format_args!("Serde error at offset {:?}: {:?}", location.offset, error))
             }
-            Error::UnexpectedType(item_type) => f.write_fmt(format_args!("Unexpected item type: {}", item_type)),
-            Error::UnsupportedType(rust_type) => f.write_fmt(format_args!(
-                "Serialization to TTLV from Rust type {} is not supported",
-                rust_type
-            )),
-            Error::Other(err) => f.write_str(err),
         }
     }
 }

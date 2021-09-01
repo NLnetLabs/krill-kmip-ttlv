@@ -9,8 +9,8 @@ use serde::{
 use types::{TtlvBoolean, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvTextString};
 
 use crate::{
-    error::{Error, Result},
-    types::{self, ItemTag, ItemType, SerializableTtlvType, TtlvByteString, TtlvDateTime},
+    error::{Error, ErrorLocation, FieldType, MalformedTtlvError, Result, SerdeError},
+    types::{self, ItemTag, SerializableTtlvType, TtlvByteString, TtlvDateTime, TtlvType},
 };
 
 // --- Public interface ------------------------------------------------------------------------------------------------
@@ -34,21 +34,16 @@ where
 impl std::error::Error for Error {}
 
 impl serde::ser::Error for Error {
-    fn custom<T: std::fmt::Display>(msg: T) -> Self {
-        Self::Other(format!("Serde serialization error: {}", msg))
+    fn custom<T: std::fmt::Display>(_msg: T) -> Self {
+        // todo: use _msg?
+        Self::SerdeError {
+            error: SerdeError::Other,
+            location: ErrorLocation { offset: None },
+        }
     }
 }
 
 // --- Private implementation details ----------------------------------------------------------------------------------
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum FieldType {
-    Tag,
-    Type,
-    Length,
-    Value,
-    TypeAndLengthAndValue,
-}
 
 impl Default for FieldType {
     fn default() -> Self {
@@ -120,10 +115,13 @@ impl TtlvSerializer {
 
             // Error, don't permit invalid things like TTVL etc.
             (expected, actual) => {
-                return Err(Error::SerializeError(format!(
-                    "Expected: {}, Actual: {}",
-                    expected, actual
-                )));
+                // return Err(Error::SerializeError(format!(
+                //     "Expected: {}, Actual: {}",
+                //     expected, actual
+                // )));
+                return Err(
+                    self.add_location_to_ttlv_error(MalformedTtlvError::UnexpectedTtlvField { expected, actual })
+                );
             }
         };
 
@@ -155,7 +153,7 @@ impl TtlvSerializer {
 
     /// Write the TTLV item type ("a byte containing a coded value"). This will advance the buffer write position by
     /// 1 byte.
-    fn write_type(&mut self, item_type: ItemType) -> Result<()> {
+    fn write_type(&mut self, item_type: TtlvType) -> Result<()> {
         if self.advance_state(FieldType::Type)? {
             self.dst.write_all(&[item_type as u8])?;
         }
@@ -193,9 +191,27 @@ impl TtlvSerializer {
     fn finalize(&mut self) -> Result<()> {
         if !self.bookmarks.is_empty() {
             // This shouldn't happen.
-            Err(Error::UnableToDetermineTtlvStructureLength)
+            Err(self.add_location_to_ttlv_error(MalformedTtlvError::UnknownStructureLength))
         } else {
             Ok(())
+        }
+    }
+
+    fn add_location_to_serde_error(&self, err: SerdeError) -> Error {
+        Error::SerdeError {
+            error: err,
+            location: ErrorLocation {
+                offset: Some(self.dst.len() as u64),
+            },
+        }
+    }
+
+    fn add_location_to_ttlv_error(&self, err: MalformedTtlvError) -> Error {
+        Error::MalformedTtlv {
+            error: err,
+            location: ErrorLocation {
+                offset: Some(self.dst.len() as u64),
+            },
         }
     }
 }
@@ -220,8 +236,11 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     /// When using #[derive(Serialize)] you should use #[serde(rename = "0xAABBCC")] to cause the name argument value
     /// received here to be the TTLV tag value to use when serializing the structure to the write buffer.
     fn serialize_tuple_struct(self, name: &'static str, _len: usize) -> Result<Self::SerializeTupleStruct> {
-        self.write_tag(ItemTag::from_str(name)?, false)?;
-        self.write_type(ItemType::Structure)?;
+        self.write_tag(
+            ItemTag::from_str(name).map_err(|err| self.add_location_to_serde_error(err))?,
+            false,
+        )?;
+        self.write_type(TtlvType::Structure)?;
         self.write_zero_len()?;
         // SerializeTupleStruct will write out the tuple fields then call rewrite_len()
         Ok(self)
@@ -346,8 +365,13 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         //
         // So in this case we should skip writing out the tag and only write the type, length and value.
 
-        self.write_tag(ItemTag::from_str(name)?, false)?;
-        let variant = u32::from_str_radix(variant.trim_start_matches("0x"), 16)?;
+        self.write_tag(
+            ItemTag::from_str(name)
+                .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidTag(name.into())))?,
+            false,
+        )?;
+        let variant = u32::from_str_radix(variant.trim_start_matches("0x"), 16)
+            .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidVariant(variant)))?;
         variant.serialize(self)
     }
 
@@ -366,8 +390,12 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         } else {
             name
         };
-        self.write_tag(ItemTag::from_str(name)?, false)?;
-        self.write_type(ItemType::Structure)?;
+        self.write_tag(
+            ItemTag::from_str(name)
+                .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidTag(name.into())))?,
+            false,
+        )?;
+        self.write_type(TtlvType::Structure)?;
         self.write_zero_len()?;
         // SerializeTupleVariant will write out the tuple fields then call rewrite_len()
         Ok(self)
@@ -393,7 +421,11 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
 
         // If the variant name is "Transparent" serialize the inner value directly, don't wrap it in a TTLV Structure.
         if variant == "Transparent" {
-            self.write_tag(ItemTag::from_str(name)?, set_ignore_next_tag)?;
+            self.write_tag(
+                ItemTag::from_str(name)
+                    .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidTag(name.into())))?,
+                set_ignore_next_tag,
+            )?;
             value.serialize(self)
         } else {
             let mut ser = self.serialize_tuple_variant(name, variant_index, variant, 1)?;
@@ -413,7 +445,11 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         T: Serialize,
     {
         if let Some(name) = name.strip_prefix("Transparent:") {
-            self.write_tag(ItemTag::from_str(name)?, false)?;
+            self.write_tag(
+                ItemTag::from_str(name)
+                    .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidTag(name.into())))?,
+                false,
+            )?;
             value.serialize(self)
         } else {
             let mut ser = self.serialize_tuple_struct(name, 1)?;
@@ -436,8 +472,12 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     /// requests based on anonymous fields that are self-evident from their type names, and responses with helpfully
     /// named member fields for cases where there is no need to explicitly name the field type in order to use it.
     fn serialize_struct(self, name: &'static str, _len: usize) -> Result<Self::SerializeStruct> {
-        self.write_tag(ItemTag::from_str(name)?, false)?;
-        self.write_type(ItemType::Structure)?;
+        self.write_tag(
+            ItemTag::from_str(name)
+                .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidTag(name.into())))?,
+            false,
+        )?;
+        self.write_type(TtlvType::Structure)?;
         self.write_zero_len()?;
         // SerializeStruct will write out the tuple fields then call rewrite_len()
         Ok(self)
@@ -466,23 +506,23 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     type SerializeTuple = Impossible<(), Self::Error>;
 
     fn serialize_u8(self, _v: u8) -> Result<()> {
-        Err(Self::Error::UnsupportedType("u8"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("u8")))
     }
 
     fn serialize_u16(self, _v: u16) -> Result<()> {
-        Err(Self::Error::UnsupportedType("u16"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("u16")))
     }
 
     fn serialize_f32(self, _v: f32) -> Result<()> {
-        Err(Self::Error::UnsupportedType("f32"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("f32")))
     }
 
     fn serialize_f64(self, _v: f64) -> Result<()> {
-        Err(Self::Error::UnsupportedType("f64"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("f64")))
     }
 
     fn serialize_char(self, _v: char) -> Result<()> {
-        Err(Self::Error::UnsupportedType("char"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("char")))
     }
 
     /// Serializing `None` values, e.g. Option::<TypeName>::None, is not supported.
@@ -511,23 +551,23 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     /// zero length value in the TTLV Structure "header" with the actual length as the bytes to replace would no longer
     /// exist.
     fn serialize_none(self) -> Result<()> {
-        Err(Self::Error::UnsupportedType("None"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("None")))
     }
 
     fn serialize_unit(self) -> Result<()> {
-        Err(Self::Error::UnsupportedType("unit"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("unit")))
     }
 
     fn serialize_unit_struct(self, _name: &'static str) -> Result<()> {
-        Err(Self::Error::UnsupportedType("unit struct"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("unit struct")))
     }
 
     fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple> {
-        Err(Self::Error::UnsupportedType("tuple"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("tuple")))
     }
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap> {
-        Err(Self::Error::UnsupportedType("map"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("map")))
     }
 
     fn serialize_struct_variant(
@@ -537,7 +577,7 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        Err(Self::Error::UnsupportedType("struct variant"))
+        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("struct variant")))
     }
 }
 

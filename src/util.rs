@@ -5,8 +5,8 @@ use std::ops::Deref;
 use crate::de::TtlvDeserializer;
 use crate::error::Result;
 use crate::types::{
-    ItemType, SerializableTtlvType, TtlvBigInteger, TtlvBoolean, TtlvByteString, TtlvDateTime, TtlvEnumeration,
-    TtlvInteger, TtlvLongInteger, TtlvTextString,
+    SerializableTtlvType, TtlvBigInteger, TtlvBoolean, TtlvByteString, TtlvDateTime, TtlvEnumeration, TtlvInteger,
+    TtlvLongInteger, TtlvTextString, TtlvType,
 };
 
 /// Interpret the given byte slice as TTLV as much as possible and render it to a String in human readable form.
@@ -35,15 +35,15 @@ pub fn to_string(bytes: &[u8]) -> String {
 
         #[rustfmt::skip]
         let data = match typ {
-            ItemType::Structure   => { len = Some(TtlvDeserializer::read_length(cursor)? as u64); EMPTY_STRING }
-            ItemType::Integer     => { format!(" {data:#08X} ({data})", data = TtlvInteger::read(cursor)?.deref()) }
-            ItemType::LongInteger => { format!(" {data:#08X} ({data})", data = TtlvLongInteger::read(cursor)?.deref()) }
-            ItemType::BigInteger  => { format!(" {data}", data = hex::encode_upper(&TtlvBigInteger::read(cursor)?.deref())) }
-            ItemType::Enumeration => { format!(" {data:#08X} ({data})", data = TtlvEnumeration::read(cursor)?.deref()) }
-            ItemType::Boolean     => { format!(" {data}", data = TtlvBoolean::read(cursor)?.deref()) }
-            ItemType::TextString  => { format!(" {data}", data = TtlvTextString::read(cursor)?.deref()) }
-            ItemType::ByteString  => { format!(" {data}", data = hex::encode_upper(&TtlvByteString::read(cursor)?.deref())) }
-            ItemType::DateTime    => { format!(" {data:#08X}", data = TtlvDateTime::read(cursor)?.deref()) }
+            TtlvType::Structure   => { len = Some(TtlvDeserializer::read_length(cursor)? as u64); EMPTY_STRING }
+            TtlvType::Integer     => { format!(" {data:#08X} ({data})", data = TtlvInteger::read(cursor)?.deref()) }
+            TtlvType::LongInteger => { format!(" {data:#08X} ({data})", data = TtlvLongInteger::read(cursor)?.deref()) }
+            TtlvType::BigInteger  => { format!(" {data}", data = hex::encode_upper(&TtlvBigInteger::read(cursor)?.deref())) }
+            TtlvType::Enumeration => { format!(" {data:#08X} ({data})", data = TtlvEnumeration::read(cursor)?.deref()) }
+            TtlvType::Boolean     => { format!(" {data}", data = TtlvBoolean::read(cursor)?.deref()) }
+            TtlvType::TextString  => { format!(" {data}", data = TtlvTextString::read(cursor)?.deref()) }
+            TtlvType::ByteString  => { format!(" {data}", data = hex::encode_upper(&TtlvByteString::read(cursor)?.deref())) }
+            TtlvType::DateTime    => { format!(" {data:#08X}", data = TtlvDateTime::read(cursor)?.deref()) }
         };
 
         let fragment = format!("Tag: Unknown ({:#06X}), Type: {}, Data:{}\n", *tag, typ, data);
