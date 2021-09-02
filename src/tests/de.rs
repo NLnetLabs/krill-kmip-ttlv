@@ -173,8 +173,9 @@ fn test_malformed_ttlv() {
 }
 
 #[test]
-fn test_incorrect_serde_configuration() {
+fn test_incorrect_serde_configuration_mismatched_types() {
     use fixtures::malformed_ttlv::*;
+    use serde_derive::Deserialize;
 
     // $rust_type should be the Rust type that the $expected_ttlv_type should deserialize into, e.g. TTLV type
     // TtlvInteger deserializes into Rust type i32. $actual_ttlv_type is then an unexpected different TTLV type whose
@@ -231,7 +232,6 @@ fn test_incorrect_serde_configuration() {
     test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_string);
     test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_bytes);
 
-    use serde_derive::Deserialize;
     #[derive(Debug, Deserialize)]
     #[serde(rename = "0xBBBBBB")]
     enum DummyEnum {
@@ -248,4 +248,31 @@ fn test_incorrect_serde_configuration() {
     test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_string);
     test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_bytes);
     test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_datetime);
+}
+
+#[test]
+fn test_incorrect_serde_configuration_invalid_tags() {
+    use fixtures::malformed_ttlv::*;
+    use serde_derive::Deserialize;
+
+    macro_rules! test_invalid_tag {
+        ($rust_type:ty, $actual_tlv_value:expr) => {
+            assert_matches!(
+                from_slice::<$rust_type>(&ttlv_bytes_with_custom_tlv(&$actual_tlv_value)),
+                Err(Error::SerdeError {
+                    error: SerdeError::InvalidTag(_),
+                    location: ErrorLocation { offset: Some(0) }
+                })
+            );
+        };
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct UntaggedRoot { }
+    test_invalid_tag!(UntaggedRoot, TtlvInteger(1));
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename = "This is not hex")]
+    struct NonHexTaggedRoot { }
+    test_invalid_tag!(NonHexTaggedRoot, TtlvInteger(1));
 }
