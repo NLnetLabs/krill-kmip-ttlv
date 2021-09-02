@@ -52,7 +52,7 @@ pub enum SerdeError {
     UnsupportedRustType(&'static str),
     MissingField, // todo: add more metadata here?
     MissingIdentifier,
-    Other, // todo: add more metadata here?
+    Other(String),
 }
 
 #[derive(Debug)]

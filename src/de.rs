@@ -123,9 +123,8 @@ where
 // Required for impl Deserializer below to use this type, but I don't really want arbitrary strings leaking out of the
 // deserializer as they could leak sensitive data
 impl serde::de::Error for Error {
-    fn custom<T: std::fmt::Display>(_msg: T) -> Self {
-        // todo: use _msg?
-        TtlvDeserializer::locationless_serde_error(SerdeError::Other)
+    fn custom<T: std::fmt::Display>(msg: T) -> Self {
+        TtlvDeserializer::locationless_serde_error(SerdeError::Other(msg.to_string()))
     }
 }
 
@@ -807,7 +806,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     ///
     /// The if syntax currently only supports matching against the value of earlier seen enum or string TTLV items that
     /// are looked up by their tag.
-    fn deserialize_enum<V>(self, _name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value>
+    fn deserialize_enum<V>(self, name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -889,11 +888,10 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
 
                 visitor.visit_enum(&mut *self) // jumps to impl EnumAccess below
             }
-            // None => Err(Error::Other(format!(
-            //     "TTLV item type for enum '{}' has not yet been read",
-            //     name
-            // ))),
-            None => Err(self.add_location_to_serde_error(SerdeError::Other)),
+            None => Err(self.add_location_to_serde_error(SerdeError::Other(format!(
+                "TTLV item type for enum '{}' has not yet been read",
+                name
+            )))),
         }
     }
 

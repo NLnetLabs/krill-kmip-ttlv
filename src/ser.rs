@@ -34,10 +34,9 @@ where
 impl std::error::Error for Error {}
 
 impl serde::ser::Error for Error {
-    fn custom<T: std::fmt::Display>(_msg: T) -> Self {
-        // todo: use _msg?
+    fn custom<T: std::fmt::Display>(msg: T) -> Self {
         Self::SerdeError {
-            error: SerdeError::Other,
+            error: SerdeError::Other(msg.to_string()),
             location: ErrorLocation { offset: None },
         }
     }
