@@ -129,76 +129,9 @@ impl serde::de::Error for Error {
 }
 
 trait ContextualErrorSupport {
-    const WINDOW_SIZE: usize = 20;
-
     fn pos(&self) -> u64;
 
     fn buf(&self) -> &[u8];
-
-    fn ctx(&self) -> String {
-        // let pos = self.pos();
-        // let buf_len = self.buf().len();
-
-        // if buf_len == 0 {
-        //     return "^>><<$".to_string();
-        // }
-
-        // let start = if pos > Self::WINDOW_SIZE {
-        //     pos - Self::WINDOW_SIZE
-        // } else {
-        //     0
-        // };
-        // let mut end = start + (2 * Self::WINDOW_SIZE);
-        // if end >= buf_len {
-        //     end = buf_len - 1
-        // }
-
-        // // Convert to usize because range indexing into slices is usize based, but std::io::Cursor::position() returns
-        // // a u64, so we end up dealing with both types. A u64 makes more sense to me for the position in the stream.
-        // let start = start as usize; // todo: is this safe?
-        // let end = end as usize;
-        // let pos = pos as usize;
-
-        // let mut ctx = String::new();
-        // if start == 0 {
-        //     ctx.push('^');
-        // }
-        // if start < pos {
-        //     let range = start..pos;
-        //     if start > 0 {
-        //         ctx.push_str("..")
-        //     }
-        //     ctx.push_str(&hex::encode_upper(self.buf()[range].to_vec()));
-        // }
-        // if pos <= end {
-        //     ctx.push_str(&format!(">>{:02X}<<", self.buf()[pos]));
-        // } else {
-        //     ctx.push_str(">><<");
-        // }
-        // if (pos + 1) <= end {
-        //     let range = (pos + 1)..=end;
-        //     let range_len = end - pos;
-        //     let add_ellipsis = range_len > (Self::WINDOW_SIZE as usize);
-        //     ctx.push_str(&hex::encode_upper(self.buf()[range].to_vec()));
-        //     if add_ellipsis {
-        //         ctx.push_str("..")
-        //     }
-        // }
-        // if end == (buf_len - 1) {
-        //     ctx.push('$');
-        // }
-        // ctx
-        String::new() // todo
-    }
-
-    // fn error(&self, msg: impl std::fmt::Display) -> Error {
-    //     Error::DeserializeError {
-    //         ctx: self.ctx(),
-    //         pos: self.pos(),
-    //         len: self.buf().len(),
-    //         msg: msg.to_string(),
-    //     }
-    // }
 }
 
 pub(crate) struct TtlvDeserializer<'de: 'c, 'c> {
@@ -361,14 +294,10 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             false
         } else {
             let field_index = self.group_item_count - 1;
-            let expected_tag_str = self.group_fields.get(field_index).ok_or_else(|| {
-                // Error::Other(format!(
-                //     "Expected field index is out of bounds {} >= {}",
-                //     field_index,
-                //     self.group_fields.len()
-                // ))
-                self.add_location_to_serde_error(SerdeError::MissingField)
-            })?;
+            let expected_tag_str = self
+                .group_fields
+                .get(field_index)
+                .ok_or_else(|| self.add_location_to_serde_error(SerdeError::MissingField))?;
             let actual_tag_str = &self.item_tag.unwrap().to_string();
 
             let item_unexpected = actual_tag_str != expected_tag_str;
@@ -402,10 +331,6 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         let (group_start, group_tag, group_type) = self.get_start_tag_type()?;
 
         if group_tag != wanted_tag {
-            // return Err(Error::Other(format!(
-            //     "Wanted tag '{}' but found '{}'",
-            //     wanted_tag, group_tag
-            // )));
             return Err(self.add_location_to_serde_error(SerdeError::UnexpectedTag {
                 expected: wanted_tag,
                 actual: group_tag,
@@ -533,14 +458,6 @@ impl<'de: 'c, 'c> ContextualErrorSupport for TtlvDeserializer<'de, 'c> {
 macro_rules! unsupported_type {
     ($deserialize:ident, $type:ident) => {
         fn $deserialize<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value> {
-            // Err(Error::Other(
-            //     concat!(
-            //         "Deserializing TTLV to the Rust ",
-            //         stringify!($type),
-            //         " type is not supported."
-            //     )
-            //     .into(),
-            // ))
             Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType(stringify!($type))))
         }
     };
@@ -897,7 +814,6 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
                 // raise a `SerdeError::UnexpectedType` error here instead as really we are being asked to deserialize a
                 // non-enum TTLV item into a Rust enum which is a type expectation mismatch.
                 if self.item_identifier.is_none() {
-                    // self.item_identifier = Some(self.item_tag.unwrap().to_string());
                     Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
                         expected: TtlvType::Enumeration,
                         actual: item_type,
