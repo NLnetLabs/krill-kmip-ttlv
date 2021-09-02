@@ -67,6 +67,17 @@ pub(crate) fn ttlv_bytes_with_wrong_value_length() -> Vec<u8> {
     hex::decode(test_data.replace(" ", "")).unwrap()
 }
 
+pub(crate) fn ttlv_bytes_with_wrong_boolean_value() -> Vec<u8> {
+    let struct_hdr = "AAAAAA  01  00000010";
+    let raw_ints = [
+        "BBBBBB  06  00000008  00000000  00000002", // Type 00000006 boolean should only have values of 0 or 1
+    ];
+    let mut test_data = String::new();
+    test_data.push_str(struct_hdr);
+    test_data.push_str(&raw_ints.join(""));
+    hex::decode(test_data.replace(" ", "")).unwrap()
+}
+
 pub(crate) fn ttlv_bytes_with_custom_tlv<T>(ttlv_type: &T) -> Vec<u8>
 where
     T: SerializableTtlvType,

@@ -160,6 +160,16 @@ fn test_malformed_ttlv() {
             location: ErrorLocation { offset: Some(16) }
         })
     );
+
+    assert_matches!(
+        from_slice::<FlexibleRootType<bool>>(&ttlv_bytes_with_wrong_boolean_value()),
+        Err(Error::MalformedTtlv {
+            error: MalformedTtlvError::InvalidValue,
+            location: ErrorLocation { offset: Some(24) }
+        })
+    );
+    // would be useful to know the tag name, Rust or TTLV type here, and is it safe
+    // to reveal the incorrect value?
 }
 
 #[test]
