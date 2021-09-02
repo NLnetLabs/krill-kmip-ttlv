@@ -872,21 +872,39 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
 
                 visitor.visit_enum(&mut *self) // jumps to impl EnumAccess (ending at unit_variant()) below
             }
-            Some(_) => {
-                // Handle cases such as a `BatchItem.operation` enum field that indicates the enum variant and thus
-                // structure type of `BatchItem.payload` that this TTLV structure should be deserialized into, the
-                // KeyMaterial case where the KeyMaterial is an enum that can be either bytes or a structure, or the
-                // AttributeValue case where the value can be one of several predefined structure types or any primitive
-                // type....
+            Some(item_type) => {
+                // "simple" enums, i.e. TTLV integer or TTLV enumeration values in the byte stream, are handled by the
+                // case above.
+                //
+                // This case is for handling non-enum non-int TTLV types in the byte stream which are next to deserialize
+                // because they match a "complex" enum variant, i.e. a tuple or struct variant that has an associated type
+                // or types whose values are now attempintg to deserialize.
+                //
+                // As we can't read an enum/int value from the byte stream and use that as the item_identifier to announce
+                // to serde we can't select the right variant. So instead we is_variant_applicable() to have been used
+                // successfully above to grab a variant name to announce here. So if we get here and self.item_identifier
+                // is not set then we can't announce a variant and Serde will fail to deserialize. That's fine, users
+                // shouldn't be trying to deserialize non-TTLV-enums into Rust enums directly!
 
-                // If we couldn't work out the correct variant name to announce to serde, announce the enum tag as the
-                // variant name and let Serde handle it in case the caller has used `#[serde(other)]` to mark one
-                // variant as the default.
+                // This logic can handle cases such as a previously seen `BatchItem.operation` enum field whose value was
+                // e.g. 0x00000005 which we stored in the value_store map against the tag id of the `BatchItem.operation`
+                // field and can now use that to select a variant by naming the variant
+                // "if <prev_tag_id> == <this_variant_id>".
+
+                // If we couldn't work out the correct variant name to announce to serde, don't bother going further as
+                // that will result in `deserialize_identfier()` below calling `visitor.visit_str(identifier)` which will
+                // then raise a `SerdeError::Other("unknown variant")` error. That isn't terrible, but it's better to
+                // raise a `SerdeError::UnexpectedType` error here instead as really we are being asked to deserialize a
+                // non-enum TTLV item into a Rust enum which is a type expectation mismatch.
                 if self.item_identifier.is_none() {
-                    self.item_identifier = Some(self.item_tag.unwrap().to_string());
+                    // self.item_identifier = Some(self.item_tag.unwrap().to_string());
+                    Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
+                        expected: TtlvType::Enumeration,
+                        actual: item_type,
+                    }))
+                } else {
+                    visitor.visit_enum(&mut *self) // jumps to impl EnumAccess below
                 }
-
-                visitor.visit_enum(&mut *self) // jumps to impl EnumAccess below
             }
             None => Err(self.add_location_to_serde_error(SerdeError::Other(format!(
                 "TTLV item type for enum '{}' has not yet been read",
@@ -900,16 +918,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         V: Visitor<'de>,
     {
         if let Some(identifier) = &self.item_identifier {
-            visitor.visit_str(identifier) /* .map_err(|err: Self::Error| {
-                                              Error::Other(format!(
-                                                  concat!(
-                                                      "Serde was not expecting identifier '{}': {}. Tip: Ensure that the Rust type being ",
-                                                      "deserialized into either has a member field with name '{}' or add attribute ",
-                                                      r#"`#[serde(rename = "{}")]` to the field"#
-                                                  ),
-                                                  identifier, err, identifier, identifier
-                                              ))
-                                          }) */
+            visitor.visit_str(identifier)
         } else {
             Err(self.add_location_to_serde_error(SerdeError::MissingIdentifier))
         }

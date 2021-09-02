@@ -1,7 +1,10 @@
 use crate::error::{Error, ErrorLocation, MalformedTtlvError, SerdeError};
 use crate::tests::fixtures;
 use crate::tests::util::{make_limited_reader, make_reader, no_response_size_limit, reject_if_response_larger_than};
-use crate::types::TtlvType;
+use crate::types::{
+    SerializableTtlvType, TtlvBigInteger, TtlvBoolean, TtlvByteString, TtlvDateTime, TtlvEnumeration, TtlvInteger,
+    TtlvLongInteger, TtlvTextString, TtlvType,
+};
 use crate::{from_reader, from_slice, Config};
 
 use assert_matches::assert_matches;
@@ -147,7 +150,7 @@ fn test_malformed_ttlv() {
     );
 
     assert_matches!(
-        from_slice::<RootType>(&ttlv_bytes_with_invalid_integer_length()),
+        from_slice::<RootType>(&ttlv_bytes_with_wrong_value_length()),
         Err(Error::MalformedTtlv {
             error: MalformedTtlvError::InvalidLength {
                 expected: 4,
@@ -163,49 +166,76 @@ fn test_malformed_ttlv() {
 fn test_incorrect_serde_configuration() {
     use fixtures::malformed_ttlv::*;
 
-    // use the invalid value length fixtures as we don't get as far as deserializing the value but instead fail before
-    // that due to the TTLV type encountered not matching the Rust type being deserialized into.
-    assert_matches!(
-        from_slice::<FlexibleRootType<i64>>(&ttlv_bytes_with_invalid_integer_length()),
-        Err(Error::SerdeError {
-            error: SerdeError::UnexpectedType {
-                expected: TtlvType::LongInteger,
-                actual: TtlvType::Integer
-            },
-            location: ErrorLocation { offset: Some(12) }
-        })
-    );
+    // $rust_type should be the Rust type that the $expected_ttlv_type should deserialize into, e.g. TTLV type
+    // TtlvInteger deserializes into Rust type i32. $actual_ttlv_type is then an unexpected different TTLV type whose
+    // numeric TTLV type code is written into the TTLV bytes instead of the expected TTLV type. On deserialization
+    // the Serde Derive generated deserializer code will invoke Serde with the $rust_type which will lead to the code
+    // for that type trying to deserialize the TTLV bytes at that point using the corresponding TTLV type deserializer,
+    // but this will fail because the deserializer checks if the numeric TTLV type code encountered in the bytes stream
+    // matches its expectation.
+    macro_rules! test_rust_ttlv_type_mismatch {
+        ($rust_type:ty, $expected_ttlv_type:path, $actual_tlv_value:expr) => {
+            assert_matches!(
+                from_slice::<$rust_type>(&ttlv_bytes_with_custom_tlv(&$actual_tlv_value)),
+                Err(Error::SerdeError {
+                    error: SerdeError::UnexpectedType {
+                        expected: $expected_ttlv_type,
+                        actual,
+                    },
+                    location: ErrorLocation { offset: Some(12) }
+                }) if actual == $actual_tlv_value.ttlv_type()
+            );
+        };
+    }
 
-    assert_matches!(
-        from_slice::<FlexibleRootType<bool>>(&ttlv_bytes_with_invalid_integer_length()),
-        Err(Error::SerdeError {
-            error: SerdeError::UnexpectedType {
-                expected: TtlvType::Boolean,
-                actual: TtlvType::Integer
-            },
-            location: ErrorLocation { offset: Some(12) }
-        })
-    );
+    // Dummy values to serialize into the byte stream to set it up ready for testing if deserializing behaves as
+    // expected
+    let a_int = TtlvInteger(1);
+    let a_longint = TtlvLongInteger(1);
+    let a_bigint = TtlvBigInteger(vec![1]);
+    let a_enum = TtlvEnumeration(1);
+    let a_bool = TtlvBoolean(true);
+    let a_string = TtlvTextString("blah".to_string());
+    let a_bytes = TtlvByteString(vec![1]);
+    let a_datetime = TtlvDateTime(1);
 
-    assert_matches!(
-        from_slice::<FlexibleRootType<String>>(&ttlv_bytes_with_invalid_integer_length()),
-        Err(Error::SerdeError {
-            error: SerdeError::UnexpectedType {
-                expected: TtlvType::TextString,
-                actual: TtlvType::Integer
-            },
-            location: ErrorLocation { offset: Some(12) }
-        })
-    );
+    // GOOD: i32 <-- from TTLV Integer
+    from_slice::<FlexibleRootType<i32>>(&ttlv_bytes_with_custom_tlv(&a_int)).unwrap();
+    // BAD: attempt and fail to deserialize TTLV types that can't (or we won't) fit into the Rust i32 type
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_longint);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_bigint);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_enum);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_bool);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_string);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_bytes);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_datetime);
 
-    assert_matches!(
-        from_slice::<ByteStringRootType>(&ttlv_bytes_with_invalid_integer_length()),
-        Err(Error::SerdeError {
-            error: SerdeError::UnexpectedType {
-                expected: TtlvType::ByteString,
-                actual: TtlvType::Integer
-            },
-            location: ErrorLocation { offset: Some(12) }
-        })
-    );
+    // GOOD: i64 <-- from TTLV Long Integer or TTLV Date Time (both are 64-bit values)
+    from_slice::<FlexibleRootType<i64>>(&ttlv_bytes_with_custom_tlv(&a_longint)).unwrap();
+    from_slice::<FlexibleRootType<i64>>(&ttlv_bytes_with_custom_tlv(&a_datetime)).unwrap();
+    // BAD: attempt and fail to deserialize TTLV types that can't (or we won't) fit into the Rust i64 type
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_int);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_bigint);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_enum);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_bool);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_string);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_bytes);
+
+    use serde_derive::Deserialize;
+    #[derive(Debug, Deserialize)]
+    #[serde(rename = "0xBBBBBB")]
+    enum DummyEnum {
+        #[serde(rename = "0x00000001")]
+        SomeValue,
+    }
+    // GOOD: enum <-- from TTLV Enumeration or TTLV Integer (both are 32-bit values)
+    from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&a_enum)).unwrap();
+    from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&a_int)).unwrap();
+    // BAD: attempt and fail to deserialize TTLV types that can't (or we won't) fit into the Rust enum type
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_longint);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_bigint);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_bool);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_string);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_bytes);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_datetime);
 }

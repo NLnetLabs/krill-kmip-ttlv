@@ -141,6 +141,10 @@ impl From<TtlvType> for [u8; 1] {
 pub trait SerializableTtlvType: Sized + Deref {
     const TTLV_TYPE: TtlvType;
 
+    fn ttlv_type(&self) -> TtlvType {
+        Self::TTLV_TYPE
+    }
+
     fn calc_pad_bytes(value_len: u32) -> u32 {
         // pad to the next higher multiple of eight
         let remainder = value_len % 8;
