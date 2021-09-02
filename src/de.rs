@@ -130,8 +130,6 @@ impl serde::de::Error for Error {
 
 trait ContextualErrorSupport {
     fn pos(&self) -> u64;
-
-    fn buf(&self) -> &[u8];
 }
 
 pub(crate) struct TtlvDeserializer<'de: 'c, 'c> {
@@ -448,10 +446,6 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
 impl<'de: 'c, 'c> ContextualErrorSupport for TtlvDeserializer<'de, 'c> {
     fn pos(&self) -> u64 {
         self.src.position()
-    }
-
-    fn buf(&self) -> &[u8] {
-        self.src.get_ref()
     }
 }
 
