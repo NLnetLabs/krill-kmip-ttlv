@@ -851,7 +851,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
 
         // 1: Deserialize according to the TTLV item type:
         match self.item_type {
-            Some(TtlvType::Enumeration) => {
+            Some(TtlvType::Enumeration) | Some(TtlvType::Integer) => {
                 // 2: Read a TTLV enumeration from the byte stream and announce the read value as the enum variant name.
                 //    If we are selecting an enum variant based on a special "if" string then item_identifier will be
                 //    Some(xxx) where xxx will NOT match the TTLV value that is waiting to be read, instead that will
@@ -999,7 +999,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         V: Visitor<'de>,
     {
         match self.item_type {
-            Some(TtlvType::ByteString) | None => {
+            Some(TtlvType::ByteString) | Some(TtlvType::BigInteger) | None => {
                 let v = TtlvByteString::read(&mut self.src)?;
                 visitor.visit_byte_buf(v.0)
             }
