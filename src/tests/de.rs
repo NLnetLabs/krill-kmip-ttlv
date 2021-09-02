@@ -268,11 +268,11 @@ fn test_incorrect_serde_configuration_invalid_tags() {
     }
 
     #[derive(Debug, Deserialize)]
-    struct UntaggedRoot { }
+    struct UntaggedRoot {}
     test_invalid_tag!(UntaggedRoot, TtlvInteger(1));
 
     #[derive(Debug, Deserialize)]
     #[serde(rename = "This is not hex")]
-    struct NonHexTaggedRoot { }
+    struct NonHexTaggedRoot {}
     test_invalid_tag!(NonHexTaggedRoot, TtlvInteger(1));
 }
