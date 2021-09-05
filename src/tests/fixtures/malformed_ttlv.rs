@@ -6,16 +6,16 @@ use crate::types::{SerializableTtlvType, TtlvType};
 #[serde(rename = "0xAAAAAA")]
 pub(crate) struct RootType {
     #[serde(rename = "0xBBBBBB")]
-    a: i32,
+    pub a: i32,
     #[serde(rename = "0xCCCCCC")]
-    b: i32,
+    pub b: i32,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename = "0xAAAAAA")]
 pub(crate) struct FlexibleRootType<T> {
     #[serde(rename = "0xCCCCCC")]
-    a: T,
+    pub a: T,
 }
 
 #[derive(Debug, Deserialize)]
@@ -23,7 +23,7 @@ pub(crate) struct FlexibleRootType<T> {
 pub(crate) struct ByteStringRootType {
     #[serde(rename = "0xBBBBBB")]
     #[serde(with = "serde_bytes")]
-    a: Vec<u8>,
+    pub a: Vec<u8>,
 }
 
 pub(crate) fn ttlv_bytes_with_invalid_type() -> Vec<u8> {
@@ -71,6 +71,34 @@ pub(crate) fn ttlv_bytes_with_wrong_boolean_value() -> Vec<u8> {
     let struct_hdr = "AAAAAA  01  00000010";
     let raw_ints = [
         "BBBBBB  06  00000008  00000000  00000002", // Type 00000006 boolean should only have values of 0 or 1
+    ];
+    let mut test_data = String::new();
+    test_data.push_str(struct_hdr);
+    test_data.push_str(&raw_ints.join(""));
+    hex::decode(test_data.replace(" ", "")).unwrap()
+}
+
+// Taken from: https://www.cl.cam.ac.uk/~mgk25/ucs/examples/UTF-8-test.txt
+// 1  Some correct UTF-8 text. The Greek word 'kosme': "κόσμε"
+pub(crate) fn ttlv_bytes_with_valid_utf8() -> Vec<u8> {
+    let struct_hdr = "AAAAAA  01  00000018";
+    let raw_ints = [
+        "BBBBBB  07  0000000B  CEBAE1BD  B9CF83CE  BCCEB500 00000000",
+    ];
+    let mut test_data = String::new();
+    test_data.push_str(struct_hdr);
+    test_data.push_str(&raw_ints.join(""));
+    hex::decode(test_data.replace(" ", "")).unwrap()
+}
+
+// Taken from: https://www.cl.cam.ac.uk/~mgk25/ucs/examples/UTF-8-test.txt
+// 3  Malformed sequences
+// 3.1  Unexpected continuation bytes
+// 3.1.1  First continuation byte 0x80: �
+pub(crate) fn ttlv_bytes_with_invalid_utf8() -> Vec<u8> {
+    let struct_hdr = "AAAAAA  01  00000010";
+    let raw_ints = [
+        "BBBBBB  07  00000001  BF000000  00000000",
     ];
     let mut test_data = String::new();
     test_data.push_str(struct_hdr);

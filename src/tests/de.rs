@@ -170,6 +170,18 @@ fn test_malformed_ttlv() {
     );
     // would be useful to know the tag name, Rust or TTLV type here, and is it safe
     // to reveal the incorrect value?
+
+    // when testing UTF-8 let's first do a quick sanity check
+    let r = from_slice::<FlexibleRootType<String>>(&ttlv_bytes_with_valid_utf8()).unwrap();
+    assert_eq!(r.a, "κόσμε");
+
+    assert_matches!(
+        from_slice::<FlexibleRootType<String>>(&ttlv_bytes_with_invalid_utf8()),
+        Err(Error::MalformedTtlv {
+            error: MalformedTtlvError::InvalidValue,
+            location: ErrorLocation { offset: Some(17) }
+        })
+    );
 }
 
 #[test]
