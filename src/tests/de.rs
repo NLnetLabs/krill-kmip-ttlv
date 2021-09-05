@@ -269,7 +269,7 @@ fn test_incorrect_serde_configuration_mismatched_types() {
         Err(Error::SerdeError {
             error: SerdeError::Other(msg),
             location: ErrorLocation { offset: Some(24) }
-        }) if msg == "unknown variant `0x00000002`, expected: `0x00000001`");
+        }) if msg == "unknown variant `0x00000002`, expected `0x00000001`");
 }
 
 #[test]
