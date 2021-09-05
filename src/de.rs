@@ -154,12 +154,25 @@ pub(crate) struct TtlvDeserializer<'de: 'c, 'c> {
 
     // lookup maps
     tag_value_store: Rc<RefCell<HashMap<ItemTag, String>>>,
+    matcher_rule_handlers: [(&'static str, MatcherRuleHandlerFn<'de, 'c>); 3],
 }
 
 type MatcherRuleHandlerFn<'de, 'c> =
     fn(&TtlvDeserializer<'de, 'c>, &str, &str) -> std::result::Result<bool, SerdeError>;
 
 impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
+    // This is not a global read-only static array as they do not support lifetime specification which is required
+    // by the Self::fn_name references which is in turn required because the handler functions can use arbitrary data
+    // from the current instance of the deserializer. One could argue that the set of matcher fns is fixed and thus we
+    // can concretely specify everything in advance, but I'm not convinced that's really more readable.
+    fn init_matcher_rule_handlers() -> [(&'static str, MatcherRuleHandlerFn<'de, 'c>); 3] {
+        [
+            ("==", Self::handle_matcher_rule_eq),
+            (">=", Self::handle_matcher_rule_ge),
+            ("in", Self::handle_matcher_rule_in),
+        ]
+    }
+
     pub fn from_slice(cursor: &'c mut Cursor<&'de [u8]>) -> Self {
         Self {
             src: cursor,
@@ -176,6 +189,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             item_unexpected: false,
             item_identifier: None,
             tag_value_store: Rc::new(RefCell::new(HashMap::new())),
+            matcher_rule_handlers: Self::init_matcher_rule_handlers(),
         }
     }
 
@@ -208,6 +222,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             item_unexpected: false,
             item_identifier: None,
             tag_value_store: unit_enum_store,
+            matcher_rule_handlers: Self::init_matcher_rule_handlers(),
         }
     }
 
@@ -359,14 +374,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
                 .map(|idx| (&value[..idx], &value[idx + delimiter.len()..]))
         }
 
-        let op_handlers: Vec<(&'static str, MatcherRuleHandlerFn)> = vec![
-            ("==", Self::handle_matcher_rule_eq),
-            (">=", Self::handle_matcher_rule_ge),
-            ("in", Self::handle_matcher_rule_in),
-        ];
-
         if let Some(rule) = variant.strip_prefix("if ") {
-            for (op, handler_fn) in op_handlers {
+            for (op, handler_fn) in self.matcher_rule_handlers {
                 if let Some((wanted_tag, wanted_val)) = split_once(rule, op) {
                     return handler_fn(self, wanted_tag.trim(), wanted_val.trim());
                 }
