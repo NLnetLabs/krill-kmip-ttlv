@@ -311,3 +311,41 @@ fn test_incorrect_serde_configuration_invalid_tags() {
             location: ErrorLocation { offset: Some(12) }
         }) if msg == "if malformed variant matcher syntax");
 }
+
+#[test]
+fn test_mismatched_serde_configuration() {
+    use fixtures::simple::*;
+    use serde_derive::Deserialize;
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename = "0xAAAAAA")]
+    struct MissingFieldRoot {
+        #[serde(rename = "0xBBBBBB")]
+        a: i32, // field b is missing
+    }
+    assert_matches!(
+        from_slice::<MissingFieldRoot>(&ttlv_bytes()),
+        Err(Error::SerdeError {
+            error: SerdeError::MissingField,
+            location: ErrorLocation { offset: Some(28) }
+        })
+    );
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename = "0xAAAAAA")]
+    struct ExtraFieldRoot {
+        #[serde(rename = "0xBBBBBB")]
+        a: i32,
+        #[serde(rename = "0xCCCCCC")]
+        b: i32,
+        // Field c doesn't match any field in the TTLV byte sequence
+        #[serde(rename = "0xDDDDDD")]
+        c: i32,
+    }
+    assert_matches!(
+        from_slice::<ExtraFieldRoot>(&ttlv_bytes()),
+        Err(Error::SerdeError {
+            error: SerdeError::Other(msg),
+            location: ErrorLocation { offset: Some(40) }
+        }) if msg == "missing field `0xDDDDDD`");
+}
