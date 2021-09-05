@@ -262,6 +262,14 @@ fn test_incorrect_serde_configuration_mismatched_types() {
     test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, some_bytes);
     test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, some_datetime);
 
+    // BAD: attempt to deserialize an enum variant that is not in the valid value range
+    // Note: This test is brittle as it depends on the exact error message text produced by Serde Derive.
+    assert_matches!(
+        from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&some_out_of_range_enum)),
+        Err(Error::SerdeError {
+            error: SerdeError::Other(msg),
+            location: ErrorLocation { offset: Some(24) }
+        }) if msg == "unknown variant `0x00000002`, expected: `0x00000001`");
 }
 
 #[test]
