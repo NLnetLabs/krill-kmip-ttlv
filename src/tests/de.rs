@@ -213,36 +213,37 @@ fn test_incorrect_serde_configuration_mismatched_types() {
 
     // Dummy values to serialize into the byte stream to set it up ready for testing if deserializing behaves as
     // expected
-    let a_int = TtlvInteger(1);
-    let a_longint = TtlvLongInteger(1);
-    let a_bigint = TtlvBigInteger(vec![1]);
-    let a_enum = TtlvEnumeration(1);
-    let a_bool = TtlvBoolean(true);
-    let a_string = TtlvTextString("blah".to_string());
-    let a_bytes = TtlvByteString(vec![1]);
-    let a_datetime = TtlvDateTime(1);
+    let some_int = TtlvInteger(1);
+    let some_longint = TtlvLongInteger(1);
+    let some_bigint = TtlvBigInteger(vec![1]);
+    let some_enum = TtlvEnumeration(1);
+    let some_out_of_range_enum = TtlvEnumeration(2);
+    let some_bool = TtlvBoolean(true);
+    let some_string = TtlvTextString("blah".to_string());
+    let some_bytes = TtlvByteString(vec![1]);
+    let some_datetime = TtlvDateTime(1);
 
     // GOOD: i32 <-- from TTLV Integer
-    from_slice::<FlexibleRootType<i32>>(&ttlv_bytes_with_custom_tlv(&a_int)).unwrap();
+    from_slice::<FlexibleRootType<i32>>(&ttlv_bytes_with_custom_tlv(&some_int)).unwrap();
     // BAD: attempt and fail to deserialize TTLV types that can't (or we won't) fit into the Rust i32 type
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_longint);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_bigint);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_enum);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_bool);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_string);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_bytes);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, a_datetime);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, some_longint);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, some_bigint);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, some_enum);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, some_bool);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, some_string);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, some_bytes);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i32>, TtlvType::Integer, some_datetime);
 
     // GOOD: i64 <-- from TTLV Long Integer or TTLV Date Time (both are 64-bit values)
-    from_slice::<FlexibleRootType<i64>>(&ttlv_bytes_with_custom_tlv(&a_longint)).unwrap();
-    from_slice::<FlexibleRootType<i64>>(&ttlv_bytes_with_custom_tlv(&a_datetime)).unwrap();
+    from_slice::<FlexibleRootType<i64>>(&ttlv_bytes_with_custom_tlv(&some_longint)).unwrap();
+    from_slice::<FlexibleRootType<i64>>(&ttlv_bytes_with_custom_tlv(&some_datetime)).unwrap();
     // BAD: attempt and fail to deserialize TTLV types that can't (or we won't) fit into the Rust i64 type
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_int);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_bigint);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_enum);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_bool);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_string);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, a_bytes);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, some_int);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, some_bigint);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, some_enum);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, some_bool);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, some_string);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<i64>, TtlvType::LongInteger, some_bytes);
 
     #[derive(Debug, Deserialize)]
     #[serde(rename = "0xBBBBBB")]
@@ -251,15 +252,16 @@ fn test_incorrect_serde_configuration_mismatched_types() {
         SomeValue,
     }
     // GOOD: enum <-- from TTLV Enumeration or TTLV Integer (both are 32-bit values)
-    from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&a_enum)).unwrap();
-    from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&a_int)).unwrap();
+    from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&some_enum)).unwrap();
+    from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&some_int)).unwrap();
     // BAD: attempt and fail to deserialize TTLV types that can't (or we won't) fit into the Rust enum type
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_longint);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_bigint);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_bool);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_string);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_bytes);
-    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, a_datetime);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, some_longint);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, some_bigint);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, some_bool);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, some_string);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, some_bytes);
+    test_rust_ttlv_type_mismatch!(FlexibleRootType<DummyEnum>, TtlvType::Enumeration, some_datetime);
+
 }
 
 #[test]
