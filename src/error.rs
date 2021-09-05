@@ -46,6 +46,7 @@ pub enum MalformedTtlvError {
 #[non_exhaustive]
 pub enum SerdeError {
     InvalidVariant(&'static str),
+    InvalidVariantMacherSyntax(String),
     InvalidTag(String), // a tag should be numeric i.e. 0xNNNNNN but we get it from the Rust type name via Serde so it can be any string
     UnexpectedTag { expected: ItemTag, actual: ItemTag },
     UnexpectedType { expected: TtlvType, actual: TtlvType },

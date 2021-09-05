@@ -297,4 +297,17 @@ fn test_incorrect_serde_configuration_invalid_tags() {
     #[serde(rename = "This is not hex")]
     struct NonHexTaggedRoot {}
     test_invalid_tag!(NonHexTaggedRoot, TtlvInteger(1));
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename = "0xBBBBBB")]
+    enum DummyEnum {
+        #[serde(rename = "if malformed variant matcher syntax")]
+        SomeValue,
+    }
+    assert_matches!(
+        from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&TtlvEnumeration(1))),
+        Err(Error::SerdeError {
+            error: SerdeError::InvalidVariantMacherSyntax(msg),
+            location: ErrorLocation { offset: Some(12) }
+        }) if msg == "if malformed variant matcher syntax");
 }

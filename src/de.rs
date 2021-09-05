@@ -156,6 +156,9 @@ pub(crate) struct TtlvDeserializer<'de: 'c, 'c> {
     tag_value_store: Rc<RefCell<HashMap<ItemTag, String>>>,
 }
 
+type MatcherRuleHandlerFn<'de, 'c> =
+    fn(&TtlvDeserializer<'de, 'c>, &str, &str) -> std::result::Result<bool, SerdeError>;
+
 impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     pub fn from_slice(cursor: &'c mut Cursor<&'de [u8]>) -> Self {
         Self {
@@ -356,52 +359,68 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
                 .map(|idx| (&value[..idx], &value[idx + delimiter.len()..]))
         }
 
-        // TODO: this is horrible code.
-        if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| split_once(v, "==")) {
-            let wanted_tag = wanted_tag.trim();
-            let wanted_val = wanted_val.trim();
+        let op_handlers: Vec<(&'static str, MatcherRuleHandlerFn)> = vec![
+            ("==", Self::handle_matcher_rule_eq),
+            (">=", Self::handle_matcher_rule_ge),
+            ("in", Self::handle_matcher_rule_in),
+        ];
 
-            // Have we earlier seen a TTLV tag 'wanted_tag' and if so was its value 'wanted_val'? If so then this is
-            // the variant name to announce to Serde that we are deserializing into.
-            if wanted_tag == "type" {
-                // See if wanted_val is a literal string that matches the TTLV type we are currently deserializing
-                // TODO: Add BigInteger and Interval when supported
-                if matches!(
-                    (wanted_val, self.item_type.unwrap()),
-                    ("Structure", TtlvType::Structure)
-                        | ("Integer", TtlvType::Integer)
-                        | ("LongInteger", TtlvType::LongInteger)
-                        | ("Enumeration", TtlvType::Enumeration)
-                        | ("Boolean", TtlvType::Boolean)
-                        | ("TextString", TtlvType::TextString)
-                        | ("ByteString", TtlvType::ByteString)
-                        | ("DateTime", TtlvType::DateTime)
-                ) {
-                    return Ok(true);
-                }
-            } else if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
-                if *seen_enum_val == wanted_val {
-                    return Ok(true);
+        if let Some(rule) = variant.strip_prefix("if ") {
+            for (op, handler_fn) in op_handlers {
+                if let Some((wanted_tag, wanted_val)) = split_once(rule, op) {
+                    return handler_fn(self, wanted_tag.trim(), wanted_val.trim());
                 }
             }
-        } else if let Some((wanted_tag, wanted_val)) = variant.strip_prefix("if ").and_then(|v| split_once(v, ">=")) {
-            let wanted_tag = wanted_tag.trim();
-            let wanted_val = wanted_val.trim();
 
+            return Err(SerdeError::InvalidVariantMacherSyntax(variant.into()));
+        }
+
+        Ok(false)
+    }
+
+    fn handle_matcher_rule_eq(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, SerdeError> {
+        if wanted_tag == "type" {
+            // See if wanted_val is a literal string that matches the TTLV type we are currently deserializing
+            // TODO: Add BigInteger and Interval when supported
+            if matches!(
+                (wanted_val, self.item_type.unwrap()),
+                ("Structure", TtlvType::Structure)
+                    | ("Integer", TtlvType::Integer)
+                    | ("LongInteger", TtlvType::LongInteger)
+                    | ("Enumeration", TtlvType::Enumeration)
+                    | ("Boolean", TtlvType::Boolean)
+                    | ("TextString", TtlvType::TextString)
+                    | ("ByteString", TtlvType::ByteString)
+                    | ("DateTime", TtlvType::DateTime)
+            ) {
+                return Ok(true);
+            }
+        } else if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
+            if *seen_enum_val == wanted_val {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn handle_matcher_rule_ge(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, SerdeError> {
+        if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
+            if ItemTag::from_str(seen_enum_val)?.deref() >= ItemTag::from_str(wanted_val)?.deref() {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn handle_matcher_rule_in(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, SerdeError> {
+        let wanted_values = wanted_val.strip_prefix('[').and_then(|v| v.strip_suffix(']'));
+        if let Some(wanted_values) = wanted_values {
             if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
-                if ItemTag::from_str(seen_enum_val)?.deref() >= ItemTag::from_str(wanted_val)?.deref() {
-                    return Ok(true);
-                }
-            }
-        } else if let Some((wanted_tag, wanted_values)) = split_once(variant.strip_prefix("if ").unwrap_or(""), " in ")
-        {
-            let wanted_values = wanted_values.strip_prefix('[').and_then(|v| v.strip_suffix(']'));
-            if let Some(wanted_values) = wanted_values {
-                if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
-                    for wanted_value in wanted_values.split(',') {
-                        if *seen_enum_val == wanted_value.trim() {
-                            return Ok(true);
-                        }
+                for wanted_value in wanted_values.split(',') {
+                    if *seen_enum_val == wanted_value.trim() {
+                        return Ok(true);
                     }
                 }
             }
