@@ -19,7 +19,7 @@ use serde::{
 use crate::{
     error::Error,
     error::{ErrorLocation, MalformedTtlvError, Result, SerdeError},
-    types::{ItemTag, TtlvByteString, TtlvType},
+    types::{ItemTag, TtlvBigInteger, TtlvByteString, TtlvType},
     types::{
         SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvTextString,
     },
@@ -285,8 +285,11 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         Ok(u32::from_be_bytes(value_length))
     }
 
-    /// Returns Ok(true) if there is data available, Ok(false) if the end of the group has been reached or Err()
-    /// otherwise.
+    /// Read the next TTLV tag and type header and prepare for full deserialization.
+    ///
+    /// Returns Ok(true) if there is data available, Ok(false) if the end of the current group (TTLV sequence or
+    /// structure) has been reached or an I/O error or `MalformedTtlvError` (e.g. if the tag or type are invalid or if
+    /// the read cursor is past the last byte of the group).
     fn read_item_key(&mut self) -> Result<bool> {
         if let Some(group_end) = self.group_end {
             match self.pos().cmp(&group_end) {
@@ -304,22 +307,63 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         self.item_tag = Some(Self::read_tag(&mut self.src)?);
         self.item_type = Some(Self::read_type(&mut self.src)?);
 
+        // As we are invoked for every field that Serde derive found on the target Rust struct we need to handle the
+        // not just the case where the expected tag is present in the byte stream in the expected position in the
+        // sequence, but also:
+        //
+        //   - `Option` fields: these represent fields that may optionally exist in the byte stream, i.e. for a Rust
+        //     struct field with `#[serde(rename = "0x123456")]` is the next item tag in the byte stream 0x123456 or
+        //     something else (because 0x123456 is correctly missing from the byte stream)? These should be
+        //     deserialized as `Some` if present, `None` otherwise.
+        //
+        //   - Missing fields; tags that exist in the byte stream but do not have a corresponding field in the Rust
+        //     struct. These should be ignored unless `#[serde(deny_unknown_fields)]` has been used.
+        //
+        //   - Extra fields: tags that exist in the Rust struct but not in the byte stream. These represent missing
+        //     but required data which the absence of which should cause deserialization to fail.
+        //
+        // Serde derive expects that we announce the name of the field that we have encountered in the byte stream,
+        // i.e. that `fn deserialize_identifier()` will invoke `visitor.visit_str()` with the *Rust* field name. Due to
+        // our abuse of `#[serde(rename)]` we can't just announce the TTLV tag hex representation as the *Rust* field
+        // name, the *Rust* field name may be something special like "if 0x123456 in ...". Serde derive will only
+        // accept our deserialized value for the field if we announce the exact same name as the field was assigned in
+        // the Rust struct via `#[serde(rename)])`.
+        //
+        // To know which Rust name to announce as the field identifier we rely on the fact that the KMIP TTLV
+        // specification states that "All fields SHALL appear in the order specified" and that Serde derive earlier
+        // gave us the set of field names in the group when processing of the group stated. We keep track of how many
+        // items we have seen in the group and thus expect that for item N we can assume that Serde derive expects us
+        // to announce the Nth group field name.
+        //
+        // We compare the Nth field name to the tag of the next TTLV item. If N >= M, where N is zero-based and M is
+        // the number of fields that Serde derive communicated to us at the start of the group, we announce the TTLV
+        // tag in hex form as the field name so that something useful appears in the Serde error message if any. By
+        // default Serde will ignore the field value by invoking `fn deserialized_ignored_any()` and we will skip over
+        // the bytes of the TTLV item in the stream as if it were not there. If however `#[serde(deny_unknown_fields)]`
+        // is in use this scenario causes Serde derive to abort deserialization with an error.
+        //
+        // If the read tag doesn't match the expected tag, we record that the item is unexpected and continue. If the
+        // field in the Rust struct is an `Option` Serde derive will then invoke `fn deserialize_option()` at which
+        // point we detect the recorded unexpected flag and return `None` (because there was no item for that tag at
+        // this point (which is the correct position in the Rust struct/TTLV Structure sequence for the item) in the
+        // byte stream.
+
         self.group_item_count += 1;
 
         self.item_unexpected = if self.group_fields.is_empty() {
+            // We have no idea which field is expected so this field cannot be unexpected, but we also cannot set the
+            // item identifier to announce for this field (though we might establish an identifier subsequently, e.g.
+            // in the case of selecting the appropriate Rust enum variant).
             false
         } else {
             let field_index = self.group_item_count - 1;
+            let actual_tag_str = &self.item_tag.unwrap().to_string();
             let expected_tag_str = self
                 .group_fields
                 .get(field_index)
-                .ok_or_else(|| self.add_location_to_serde_error(SerdeError::MissingField))?;
-            let actual_tag_str = &self.item_tag.unwrap().to_string();
-
-            let item_unexpected = actual_tag_str != expected_tag_str;
-            self.item_identifier = Some(expected_tag_str.to_string());
-
-            item_unexpected
+                .map_or_else(|| actual_tag_str.clone(), |v| v.to_string());
+            self.item_identifier = Some(expected_tag_str.clone());
+            actual_tag_str != &expected_tag_str
         };
 
         Ok(true)
@@ -955,6 +999,55 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         }
     }
 
+    /// Skip over the current TTLV item.
+    ///
+    /// When `#[serde(deny_unknown_fields)]` is not used this function is invoked by Serde derive to have us skip over
+    /// a TTLV item for which no corresponding Rust struct field exists to deserialize it into.
+    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        // Skip over the TTLV item. We can't just read the length and skip it because the meaning of the length is TTLV
+        // type dependent. For some types it is the entire byte size of the TTLV item, for others it is the length of
+        // the TTLV item value excluding padding. For TTLV Structures skip the whole structure content. For other types
+        // deserialize them but discard the deserialized value.
+        match self.item_type.unwrap() {
+            TtlvType::Structure => {
+                // Use the TTLV item length to skip the structure.
+                let num_bytes_to_skip = TtlvDeserializer::read_length(&mut self.src)?;
+                use std::io::Seek;
+                self.src.seek(std::io::SeekFrom::Current(num_bytes_to_skip as i64))?;
+            }
+            TtlvType::Integer => {
+                TtlvInteger::read(&mut self.src)?;
+            }
+            TtlvType::LongInteger => {
+                TtlvLongInteger::read(&mut self.src)?;
+            }
+            TtlvType::BigInteger => {
+                TtlvBigInteger::read(&mut self.src)?;
+            }
+            TtlvType::Enumeration => {
+                TtlvEnumeration::read(&mut self.src)?;
+            }
+            TtlvType::Boolean => {
+                TtlvBoolean::read(&mut self.src)?;
+            }
+            TtlvType::TextString => {
+                TtlvTextString::read(&mut self.src)?;
+            }
+            TtlvType::ByteString => {
+                TtlvByteString::read(&mut self.src)?;
+            }
+            TtlvType::DateTime => {
+                TtlvDateTime::read(&mut self.src)?;
+            }
+        }
+
+        // Any visitor fn can be invoked here, they all internally return Ok(IgnoredAny).
+        visitor.visit_none()
+    }
+
     // dummy implementations of unsupported types so that we can give back a more useful error message than when using
     // `forward_to_deserialize_any()` as the latter doesn't make available the type currently being deserialized into.
 
@@ -971,17 +1064,6 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     unsupported_type!(deserialize_map, map);
     unsupported_type!(deserialize_bytes, bytes);
     unsupported_type!(deserialize_unit, unit);
-
-    /// Deserialize the bytes at the current cursor location into .. anything.
-    ///
-    /// This function shouldn't be invoked when using Serde derive as deserialization is being guided by a strongly
-    /// typed model to deserialize into.
-    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("ignored any")))
-    }
 
     fn deserialize_unit_struct<V>(self, _name: &'static str, _visitor: V) -> Result<V::Value>
     where

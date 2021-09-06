@@ -317,7 +317,10 @@ fn test_mismatched_serde_configuration() {
     use fixtures::simple::*;
     use serde_derive::Deserialize;
 
+    // Attempt to deserialize a byte stream that contains a tag which we have not specified but we have configured
+    // Serde derive to fail hard on the presence of unknown fields in the byte stream.
     #[derive(Debug, Deserialize)]
+    #[serde(deny_unknown_fields)]
     #[serde(rename = "0xAAAAAA")]
     struct MissingFieldRoot {
         #[serde(rename = "0xBBBBBB")]
@@ -326,11 +329,21 @@ fn test_mismatched_serde_configuration() {
     assert_matches!(
         from_slice::<MissingFieldRoot>(&ttlv_bytes()),
         Err(Error::SerdeError {
-            error: SerdeError::MissingField,
+            error: SerdeError::Other(msg),
             location: ErrorLocation { offset: Some(28) }
-        })
-    );
+        }) if msg == "unknown field `0xCCCCCC`, expected `0xBBBBBB`");
 
+    // Do the same again but this time without `#[serde(deny_unknown_fields)]` and see that we successfully ignore the
+    // extra field in the byte stream and complete the deserialization.
+    #[derive(Debug, Deserialize)]
+    #[serde(rename = "0xAAAAAA")]
+    struct IgnoredMissingFieldRoot {
+        #[serde(rename = "0xBBBBBB")]
+        a: i32, // field b is missing
+    }
+    from_slice::<IgnoredMissingFieldRoot>(&ttlv_bytes()).unwrap();
+
+    // Fields specified in the Rust struct are required to exist in the byte stream unless marked as `Option`.
     #[derive(Debug, Deserialize)]
     #[serde(rename = "0xAAAAAA")]
     struct ExtraFieldRoot {
