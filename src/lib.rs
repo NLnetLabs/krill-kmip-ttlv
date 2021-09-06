@@ -120,25 +120,24 @@
 //! the other or because support for it wasn't needed yet:
 //!
 //! - The following Rust types **CANNOT** be _serialized_ to TTLV as TTLV has no concept of unsigned
-//! integers, floating point, character or 'missing' values : `u8`, `u16`, `f32`, `f64`, `char`, `()`, `None` _(but see
-//! below for a special note about `None`)_.
+//!   integers, floating point, character or 'missing' values : `u8`, `u16`, `f32`, `f64`, `char`, `()`, `None` _(but
+//!   see below for a special note about `None`)_.
 //!
-//! - The following Rust types **CANNOT** be _deserialized_ from TTLV: `()`, `u8`, `u16`, `u32`, `u64`,
-//! `i8`, `i16`, `f32`, `f64`, `char`, `str`, map, `&[u8]`, `()`.
-//! `char`,
+//! - The following Rust types **CANNOT** be _deserialized_ from TTLV: `()`, `u8`, `u16`, `u32`, `u64`, `i8`, `i16`,
+//!  `f32`, `f64`, `char`, `str`, map, `&[u8]`, `()`. `char`,
 //!
 //! - The following TTLV types **CANNOT** _yet_ be serialized to TTLV: Big Integer (0x04), Interval (0x0A).
 //!
 //! - The following TTLV types **CANNOT** _yet_ be deserialized from TTLV: Interval (0x0A).
 //!
 //! - The following Rust types **CANNOT** be deserialized as this crate is opinionated and prefers to
-//! deserialize only into named fields, not nameless groups of values: unit struct, tuple struct, tuple.
+//!   deserialize only into named fields, not nameless groups of values: unit struct, tuple struct, tuple.
 //!
 //! # Data types treated specially
 //!
-//! - The Rust `struct` type by default serializes to a TTLV Structure However sometimes it is useful to be able to use a newtype struct as a wrapper around a primitive type so that you
-//!   can associate a TTLV tag value with it. This can be done by using the `Transparent:` prefix when renaming the
-//!   type, e.g. `#[serde(rename = "Transparent:0xNNNNNN")]`.
+//! - The Rust `struct` type by default serializes to a TTLV Structure However sometimes it is useful to be able to use a
+//!   newtype struct as a wrapper around a primitive type so that you can associate a TTLV tag value with it. This can be
+//!   done by using the `Transparent:` prefix when renaming the type, e.g. `#[serde(rename = "Transparent:0xNNNNNN")]`.
 //!
 //! - The Rust `Some` type is handled as if it were only the value inside the Option, the `Some` wrapper is ignored.
 //!
@@ -185,22 +184,13 @@
 //!
 //! For much richer examples see the code and tests in the source repository for the [kmip-protocol] crate.
 //!
-//! # Diagnostics
-//!
-//! If your crate provides a [log] implementation then this crate will log at debug and trace level, if those levels
-//! are enabled.
-//!
-//! At debug level every byte array is dumped in hex form pre-deserialization and post-serialization, along with a human
-//! readable tree of the TTLV tree it represents. The tree rendering is best effort in the case of invalid TTLV data.
-//! At Trace level far too much detail about the internal logic of this crate is currently logged and will likely be
-//! reduced as this crate matures.
-//!
 //! # Error handling
 //!
-//! Deserialization will be aborted by Serde if your type specification is too inflexible to handle the bytes being
-//! deserialized. Thus, as with any Serde based deserializer, you may need to explicitly account for "known unknowns",
-//! i.e. in the case of KMIP, vendors are permitted to extend the response TTLV arbitrarily at certain points which can
-//! be "ignored" by guiding Serde to deserialize the unknown bytes as just that: bytes.
+//! By default Serde ignores any items present in the TTLV byte stream that do not correspond to a tagged field in the
+//! Rust struct being deserialized into. You can disable this behaviour and make the presence of unexpected TTLV items
+//! into a deserialization error by using the `#[serde(deny_unknown_fields)]` container level Serde derive attribute.
+//! You can also explicitly ignore an unsupported item by using the `#[serde(skip_deserializing)]` field level
+//! attribute.
 //!
 //! This crate does not try to be clone free or to support `no_std` scenarios. Memory is allocated to serialize and
 //! deserialize into. In particular when deserializing bytes received from an untrusted source with `from_reader()` this
@@ -211,8 +201,6 @@
 //! If serialization or deserialization fails this crate tries to return sufficient contextual information to aid
 //! diagnosing where the problem in the TTLV byte stream is and why. Error reporting is a work in-progress and should
 //! get better as the crate matures.
-//!
-//! [log]: http://crates.io/crates/log
 
 pub mod de;
 pub mod error;
