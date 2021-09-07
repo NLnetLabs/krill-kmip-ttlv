@@ -37,7 +37,7 @@ impl serde::ser::Error for Error {
     fn custom<T: std::fmt::Display>(msg: T) -> Self {
         Self::SerdeError {
             error: SerdeError::Other(msg.to_string()),
-            location: ErrorLocation { offset: None },
+            location: ErrorLocation::default(),
         }
     }
 }
@@ -199,18 +199,14 @@ impl TtlvSerializer {
     fn add_location_to_serde_error(&self, err: SerdeError) -> Error {
         Error::SerdeError {
             error: err,
-            location: ErrorLocation {
-                offset: Some(self.dst.len() as u64),
-            },
+            location: ErrorLocation::from(self.dst.len() as u64),
         }
     }
 
     fn add_location_to_ttlv_error(&self, err: MalformedTtlvError) -> Error {
         Error::MalformedTtlv {
             error: err,
-            location: ErrorLocation {
-                offset: Some(self.dst.len() as u64),
-            },
+            location: ErrorLocation::from(self.dst.len() as u64),
         }
     }
 }

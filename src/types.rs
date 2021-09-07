@@ -1,5 +1,6 @@
 use std::{
     convert::TryFrom,
+    fmt::Debug,
     io::{Read, Write},
     ops::Deref,
     str::FromStr,
@@ -7,8 +8,14 @@ use std::{
 
 use crate::error::{Error, ErrorLocation, MalformedTtlvError, Result, SerdeError};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ItemTag(u32);
+
+impl Debug for ItemTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("0x{:0X}", &self.0))
+    }
+}
 
 impl Deref for ItemTag {
     type Target = u32;
@@ -30,7 +37,7 @@ impl FromStr for ItemTag {
 
 impl std::fmt::Display for ItemTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "0x{}", hex::encode_upper(<[u8; 3]>::from(self)))
+        write!(f, "0x{:0X}", self.0)
     }
 }
 
@@ -232,7 +239,7 @@ macro_rules! define_fixed_value_length_serializable_ttlv_type {
                             actual: value_len,
                             r#type: Self::TTLV_TYPE,
                         },
-                        location: ErrorLocation { offset: None },
+                        location: ErrorLocation::default(),
                     })
                 } else {
                     let mut dst = [0u8; Self::TTLV_FIXED_VALUE_LENGTH as usize];
@@ -346,7 +353,7 @@ impl SerializableTtlvType for TtlvBoolean {
                     actual: value_len,
                     r#type: Self::TTLV_TYPE,
                 },
-                location: ErrorLocation { offset: None },
+                location: ErrorLocation::default(),
             })
         } else {
             let mut dst = [0u8; Self::TTLV_FIXED_VALUE_LENGTH as usize];
@@ -356,7 +363,7 @@ impl SerializableTtlvType for TtlvBoolean {
                 1 => Ok(TtlvBoolean(true)),
                 _ => Err(Error::MalformedTtlv {
                     error: MalformedTtlvError::InvalidValue,
-                    location: ErrorLocation { offset: None },
+                    location: ErrorLocation::default(),
                 }),
             }
         }
@@ -400,7 +407,7 @@ impl SerializableTtlvType for TtlvTextString {
         // UTF-8
         let new_str = String::from_utf8(dst).map_err(|_| Error::MalformedTtlv {
             error: MalformedTtlvError::InvalidValue,
-            location: ErrorLocation { offset: None },
+            location: ErrorLocation::default(),
         })?;
 
         Ok(TtlvTextString(new_str))

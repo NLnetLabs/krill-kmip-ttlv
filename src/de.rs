@@ -58,19 +58,29 @@ where
     T: Deserialize<'de>,
 {
     let cursor = &mut Cursor::new(bytes);
-    let mut deserializer = TtlvDeserializer::from_slice(cursor);
-    T::deserialize(&mut deserializer).map_err(|mut err| {
+    let (res, parent_tags) = {
+        let mut deserializer = TtlvDeserializer::from_slice(cursor);
+        let res = T::deserialize(&mut deserializer);
+        let parent_tags = deserializer.tag_path.take();
+        (res, parent_tags)
+    };
+
+    if let Err(mut err) = res {
         match err {
             Error::MalformedTtlv { ref mut location, .. } if location.offset.is_none() => {
-                location.offset = Some(cursor.position())
+                location.offset = Some(cursor.position());
             }
             Error::SerdeError { ref mut location, .. } if location.offset.is_none() => {
-                location.offset = Some(cursor.position())
+                location.offset = Some(cursor.position());
             }
             _ => {}
         }
-        err
-    })
+
+        err.set_tag_location(parent_tags);
+        Err(err)
+    } else {
+        res
+    }
 }
 
 /// Read and deserialize bytes from the given reader.
@@ -155,6 +165,9 @@ pub(crate) struct TtlvDeserializer<'de: 'c, 'c> {
     // lookup maps
     tag_value_store: Rc<RefCell<HashMap<ItemTag, String>>>,
     matcher_rule_handlers: [(&'static str, MatcherRuleHandlerFn<'de, 'c>); 3],
+
+    // diagnostic support
+    tag_path: Rc<RefCell<Vec<ItemTag>>>,
 }
 
 type MatcherRuleHandlerFn<'de, 'c> =
@@ -190,9 +203,11 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             item_identifier: None,
             tag_value_store: Rc::new(RefCell::new(HashMap::new())),
             matcher_rule_handlers: Self::init_matcher_rule_handlers(),
+            tag_path: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn from_cursor(
         src: &'c mut Cursor<&'de [u8]>,
         group_tag: ItemTag,
@@ -201,6 +216,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         group_fields: &'static [&'static str],
         group_homogenous: bool, // are all items in the group the same tag and type?
         unit_enum_store: Rc<RefCell<HashMap<ItemTag, String>>>,
+        tag_path: Rc<RefCell<Vec<ItemTag>>>,
     ) -> Self {
         let group_start = src.position();
         let group_tag = Some(group_tag);
@@ -223,10 +239,11 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             item_identifier: None,
             tag_value_store: unit_enum_store,
             matcher_rule_handlers: Self::init_matcher_rule_handlers(),
+            tag_path,
         }
     }
 
-    /// Read a 3-byte TTLV tag into an [ItemTag].
+    /// Read a 3-byte TTLV tag into an [TtlvTag].
     ///
     /// This function is not normally intended to be used directly. Instead use [from_slice] or [from_reader].
     ///
@@ -304,6 +321,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         }
 
         self.item_start = self.pos() as u64;
+        self.item_tag = None;
+        self.item_type = None;
         self.item_tag = Some(Self::read_tag(&mut self.src)?);
         self.item_type = Some(Self::read_type(&mut self.src)?);
 
@@ -482,35 +501,50 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         Ok(false)
     }
 
+    fn add_location_to_error(&self, mut err: Error) -> Error {
+        match err {
+            Error::MalformedTtlv { ref mut location, .. } => *location = self.build_error_location(),
+            Error::SerdeError { ref mut location, .. } => *location = self.build_error_location(),
+            _ => (),
+        }
+
+        err
+    }
+
+    fn build_error_location(&self) -> ErrorLocation {
+        ErrorLocation {
+            offset: Some(self.pos()),
+            parent_tags: self.tag_path.take(),
+            tag: self.item_tag,
+            r#type: self.item_type,
+        }
+    }
+
     fn locationless_serde_error(err: SerdeError) -> Error {
         Error::SerdeError {
             error: err,
-            location: ErrorLocation { offset: None },
+            location: ErrorLocation::default(),
         }
     }
 
     fn add_location_to_serde_error(&self, err: SerdeError) -> Error {
         Error::SerdeError {
             error: err,
-            location: ErrorLocation {
-                offset: Some(self.pos()),
-            },
+            location: self.build_error_location(),
         }
     }
 
     fn locationless_ttlv_error(err: MalformedTtlvError) -> Error {
         Error::MalformedTtlv {
             error: err,
-            location: ErrorLocation { offset: None },
+            location: ErrorLocation::default(),
         }
     }
 
     fn add_location_to_ttlv_error(&self, err: MalformedTtlvError) -> Error {
         Error::MalformedTtlv {
             error: err,
-            location: ErrorLocation {
-                offset: Some(self.pos()),
-            },
+            location: self.build_error_location(),
         }
     }
 }
@@ -587,9 +621,16 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
             fields,
             false, // struct member fields can have different tags and types
             self.tag_value_store.clone(),
+            self.tag_path.clone(),
         );
 
+        self.tag_path.borrow_mut().push(group_tag);
+
         let r = visitor.visit_map(descendent_parser); // jumps to impl MapAccess below
+
+        if r.is_ok() {
+            self.tag_path.borrow_mut().pop();
+        }
 
         // The descendant parser cursor advanced but ours did not. Skip the tag that we just read.
         self.src.set_position(struct_cursor.position());
@@ -654,6 +695,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
             &[],
             true, // sequence fields must all have the same tag and type
             self.tag_value_store.clone(),
+            self.tag_path.clone(),
         );
 
         let r = visitor.visit_seq(descendent_parser); // jumps to impl SeqAccess below
@@ -841,7 +883,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
                 //    the call hierarchy. This enables handling of cases such as `AttributeName` string field that
                 //    indicates the enum variant represented by the `AttributeValue`.
                 if self.item_identifier.is_none() {
-                    let enum_val = TtlvEnumeration::read(self.src)?;
+                    let enum_val = TtlvEnumeration::read(self.src).map_err(|err| self.add_location_to_error(err))?;
                     let enum_hex = format!("0x{}", hex::encode_upper(enum_val.to_be_bytes()));
 
                     // Insert or replace the last value seen for this enum in our enum value lookup table
@@ -912,7 +954,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     {
         match self.item_type {
             Some(TtlvType::Integer) | None => {
-                let v = TtlvInteger::read(&mut self.src)?;
+                let v = TtlvInteger::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
                 visitor.visit_i32(*v)
             }
             Some(other_type) => Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
@@ -928,11 +970,11 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     {
         match self.item_type {
             Some(TtlvType::LongInteger) | None => {
-                let v = TtlvLongInteger::read(&mut self.src)?;
+                let v = TtlvLongInteger::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
                 visitor.visit_i64(*v)
             }
             Some(TtlvType::DateTime) => {
-                let v = TtlvDateTime::read(&mut self.src)?;
+                let v = TtlvDateTime::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
                 visitor.visit_i64(*v)
             }
             Some(other_type) => Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
@@ -948,7 +990,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     {
         match self.item_type {
             Some(TtlvType::Boolean) | None => {
-                let v = TtlvBoolean::read(&mut self.src)?;
+                let v = TtlvBoolean::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
                 visitor.visit_bool(*v)
             }
             Some(other_type) => Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
@@ -964,7 +1006,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     {
         match self.item_type {
             Some(TtlvType::TextString) | None => {
-                let v = TtlvTextString::read(&mut self.src)?;
+                let v = TtlvTextString::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
                 let str = v.0;
 
                 // Insert or replace the last value seen for this tag in our value lookup table
@@ -989,7 +1031,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     {
         match self.item_type {
             Some(TtlvType::ByteString) | Some(TtlvType::BigInteger) | None => {
-                let v = TtlvByteString::read(&mut self.src)?;
+                let v = TtlvByteString::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
                 visitor.visit_byte_buf(v.0)
             }
             Some(other_type) => Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
@@ -1019,28 +1061,28 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
                 self.src.seek(std::io::SeekFrom::Current(num_bytes_to_skip as i64))?;
             }
             TtlvType::Integer => {
-                TtlvInteger::read(&mut self.src)?;
+                TtlvInteger::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
             }
             TtlvType::LongInteger => {
-                TtlvLongInteger::read(&mut self.src)?;
+                TtlvLongInteger::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
             }
             TtlvType::BigInteger => {
-                TtlvBigInteger::read(&mut self.src)?;
+                TtlvBigInteger::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
             }
             TtlvType::Enumeration => {
-                TtlvEnumeration::read(&mut self.src)?;
+                TtlvEnumeration::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
             }
             TtlvType::Boolean => {
-                TtlvBoolean::read(&mut self.src)?;
+                TtlvBoolean::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
             }
             TtlvType::TextString => {
-                TtlvTextString::read(&mut self.src)?;
+                TtlvTextString::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
             }
             TtlvType::ByteString => {
-                TtlvByteString::read(&mut self.src)?;
+                TtlvByteString::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
             }
             TtlvType::DateTime => {
-                TtlvDateTime::read(&mut self.src)?;
+                TtlvDateTime::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
             }
         }
 
@@ -1102,12 +1144,19 @@ impl<'de: 'c, 'c> MapAccess<'de> for TtlvDeserializer<'de, 'c> {
     where
         K: serde::de::DeserializeSeed<'de>,
     {
-        if self.read_item_key()? {
-            seed.deserialize(self).map(Some) // jumps to deserialize_identifier() above
-        } else {
-            // The end of the group was reached
-            Ok(None)
+        fn inner<'de, 'c, K>(serializer: &mut TtlvDeserializer<'de, 'c>, seed: K) -> Result<Option<K::Value>>
+        where
+            K: serde::de::DeserializeSeed<'de>,
+        {
+            if serializer.read_item_key()? {
+                seed.deserialize(serializer).map(Some) // jumps to deserialize_identifier() above
+            } else {
+                // The end of the group was reached
+                Ok(None)
+            }
         }
+
+        inner(self, seed).map_err(|err| self.add_location_to_error(err))
     }
 
     fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value>
@@ -1195,6 +1244,7 @@ impl<'de: 'c, 'c> VariantAccess<'de> for &mut TtlvDeserializer<'de, 'c> {
             &[],
             false, // don't require all fields in the sequence to be of the same tag and type
             self.tag_value_store.clone(),
+            self.tag_path.clone(),
         );
 
         let r = visitor.visit_seq(descendent_parser); // jumps to impl SeqAccess below

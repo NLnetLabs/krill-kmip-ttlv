@@ -56,10 +56,21 @@ pub enum SerdeError {
     Other(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ErrorLocation {
     pub offset: Option<ByteOffset>,
-    // TODO: include something here about current tag and/or parent tag chain
+    pub parent_tags: Vec<ItemTag>,
+    pub tag: Option<ItemTag>,
+    pub r#type: Option<TtlvType>,
+}
+
+impl From<ByteOffset> for ErrorLocation {
+    fn from(offset: ByteOffset) -> Self {
+        ErrorLocation {
+            offset: Some(offset),
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -97,6 +108,24 @@ impl Display for Error {
             Error::SerdeError { error, location } => {
                 f.write_fmt(format_args!("Serde error at offset {:?}: {:?}", location.offset, error))
             }
+        }
+    }
+}
+
+impl Error {
+    pub(crate) fn set_tag_location(&mut self, parent_tags: Vec<ItemTag>) {
+        match self {
+            Error::MalformedTtlv { location, .. } => {
+                if location.parent_tags.is_empty() {
+                    location.parent_tags = parent_tags
+                }
+            }
+            Error::SerdeError { location, .. } => {
+                if location.parent_tags.is_empty() {
+                    location.parent_tags = parent_tags
+                }
+            }
+            _ => {}
         }
     }
 }

@@ -26,12 +26,12 @@ pub(crate) struct ByteStringRootType {
     pub a: Vec<u8>,
 }
 
-pub(crate) fn ttlv_bytes_with_invalid_type() -> Vec<u8> {
-    let test_data = format!("AAAAAA  {:02X}  00000020", invalid_type());
+pub(crate) fn ttlv_bytes_with_invalid_root_type() -> Vec<u8> {
+    let test_data = format!("AAAAAA  {:02X}  00000020", invalid_root_type());
     hex::decode(test_data.replace(" ", "")).unwrap()
 }
 
-pub(crate) fn invalid_type() -> u8 {
+pub(crate) fn invalid_root_type() -> u8 {
     0
 }
 
@@ -57,7 +57,7 @@ pub(crate) fn ttlv_bytes_with_length_overflow() -> Vec<u8> {
 }
 
 pub(crate) fn ttlv_bytes_with_wrong_value_length() -> Vec<u8> {
-    let struct_hdr = "AAAAAA  01  00000021";
+    let struct_hdr = "AAAAAA  01  00000010";
     let raw_ints = [
         "BBBBBB  02  00000005  00000001  00000000", // 00000005 should be 0000004
     ];
