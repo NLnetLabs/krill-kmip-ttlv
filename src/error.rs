@@ -2,7 +2,7 @@
 
 use std::{fmt::Debug, fmt::Display};
 
-use crate::types::{ItemTag, TtlvType};
+use crate::types::{TtlvTag, TtlvType};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -48,7 +48,7 @@ pub enum SerdeError {
     InvalidVariant(&'static str),
     InvalidVariantMacherSyntax(String),
     InvalidTag(String), // a tag should be numeric i.e. 0xNNNNNN but we get it from the Rust type name via Serde so it can be any string
-    UnexpectedTag { expected: ItemTag, actual: ItemTag },
+    UnexpectedTag { expected: TtlvTag, actual: TtlvTag },
     UnexpectedType { expected: TtlvType, actual: TtlvType },
     UnsupportedRustType(&'static str),
     MissingField, // todo: add more metadata here?
@@ -59,8 +59,8 @@ pub enum SerdeError {
 #[derive(Debug, Default)]
 pub struct ErrorLocation {
     pub offset: Option<ByteOffset>,
-    pub parent_tags: Vec<ItemTag>,
-    pub tag: Option<ItemTag>,
+    pub parent_tags: Vec<TtlvTag>,
+    pub tag: Option<TtlvTag>,
     pub r#type: Option<TtlvType>,
 }
 
@@ -113,7 +113,7 @@ impl Display for Error {
 }
 
 impl Error {
-    pub(crate) fn set_tag_location(&mut self, parent_tags: Vec<ItemTag>) {
+    pub(crate) fn set_tag_location(&mut self, parent_tags: Vec<TtlvTag>) {
         match self {
             Error::MalformedTtlv { location, .. } => {
                 if location.parent_tags.is_empty() {

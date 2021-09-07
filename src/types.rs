@@ -9,15 +9,15 @@ use std::{
 use crate::error::{Error, ErrorLocation, MalformedTtlvError, Result, SerdeError};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ItemTag(u32);
+pub struct TtlvTag(u32);
 
-impl Debug for ItemTag {
+impl Debug for TtlvTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("0x{:0X}", &self.0))
     }
 }
 
-impl Deref for ItemTag {
+impl Deref for TtlvTag {
     type Target = u32;
 
     fn deref(&self) -> &Self::Target {
@@ -25,38 +25,38 @@ impl Deref for ItemTag {
     }
 }
 
-impl FromStr for ItemTag {
+impl FromStr for TtlvTag {
     type Err = SerdeError;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let v =
             u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|_| SerdeError::InvalidTag(s.to_string()))?;
-        Ok(ItemTag(v))
+        Ok(TtlvTag(v))
     }
 }
 
-impl std::fmt::Display for ItemTag {
+impl std::fmt::Display for TtlvTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "0x{:0X}", self.0)
     }
 }
 
-impl From<ItemTag> for [u8; 3] {
-    fn from(tag: ItemTag) -> Self {
+impl From<TtlvTag> for [u8; 3] {
+    fn from(tag: TtlvTag) -> Self {
         <[u8; 3]>::from(&tag)
     }
 }
 
-impl From<&ItemTag> for [u8; 3] {
-    fn from(tag: &ItemTag) -> Self {
+impl From<&TtlvTag> for [u8; 3] {
+    fn from(tag: &TtlvTag) -> Self {
         let b: [u8; 4] = tag.to_be_bytes();
         [b[1], b[2], b[3]]
     }
 }
 
-impl From<[u8; 3]> for ItemTag {
+impl From<[u8; 3]> for TtlvTag {
     fn from(b: [u8; 3]) -> Self {
-        ItemTag(u32::from_be_bytes([0x00u8, b[0], b[1], b[2]]))
+        TtlvTag(u32::from_be_bytes([0x00u8, b[0], b[1], b[2]]))
     }
 }
 
@@ -478,7 +478,7 @@ mod test {
 
     use std::{io::Cursor, str::FromStr};
 
-    use crate::types::{ItemTag, SerializableTtlvType, TtlvType};
+    use crate::types::{SerializableTtlvType, TtlvTag, TtlvType};
 
     use assert_matches::assert_matches;
 
@@ -496,26 +496,26 @@ mod test {
 
         // Note: we do NOT enforce the 42 or 54 rules as those are specific to KMIP usage of TTLV, not to TTLV itself.
 
-        assert!(ItemTag::from_str("").is_err());
-        assert!(ItemTag::from_str("    ").is_err());
-        assert!(ItemTag::from_str("XYZ").is_err());
+        assert!(TtlvTag::from_str("").is_err());
+        assert!(TtlvTag::from_str("    ").is_err());
+        assert!(TtlvTag::from_str("XYZ").is_err());
 
         #[allow(non_snake_case)]
-        let ZERO_TAG = ItemTag::from([0x00u8, 0x00u8, 0x00u8]);
+        let ZERO_TAG = TtlvTag::from([0x00u8, 0x00u8, 0x00u8]);
 
         #[allow(non_snake_case)]
-        let ONE_TAG = ItemTag::from([0x00u8, 0x00u8, 0x01u8]);
+        let ONE_TAG = TtlvTag::from([0x00u8, 0x00u8, 0x01u8]);
 
-        assert_eq!(ZERO_TAG, ItemTag::from_str("0").unwrap());
-        assert_eq!(ZERO_TAG, ItemTag::from_str("000").unwrap());
-        assert_eq!(ZERO_TAG, ItemTag::from_str("0x0").unwrap());
-        assert_eq!(ONE_TAG, ItemTag::from_str("1").unwrap());
-        assert_eq!(ONE_TAG, ItemTag::from_str("001").unwrap());
-        assert_eq!(ONE_TAG, ItemTag::from_str("0x1").unwrap());
+        assert_eq!(ZERO_TAG, TtlvTag::from_str("0").unwrap());
+        assert_eq!(ZERO_TAG, TtlvTag::from_str("000").unwrap());
+        assert_eq!(ZERO_TAG, TtlvTag::from_str("0x0").unwrap());
+        assert_eq!(ONE_TAG, TtlvTag::from_str("1").unwrap());
+        assert_eq!(ONE_TAG, TtlvTag::from_str("001").unwrap());
+        assert_eq!(ONE_TAG, TtlvTag::from_str("0x1").unwrap());
 
         assert_eq!(
-            ItemTag::from([0x42u8, 0x00u8, 0xAAu8]),
-            ItemTag::from_str("0x4200AA").unwrap()
+            TtlvTag::from([0x42u8, 0x00u8, 0xAAu8]),
+            TtlvTag::from_str("0x4200AA").unwrap()
         );
         assert_eq!(ZERO_TAG, ZERO_TAG);
         assert_ne!(ONE_TAG, ZERO_TAG);

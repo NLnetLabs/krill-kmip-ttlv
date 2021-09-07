@@ -19,10 +19,10 @@ use serde::{
 use crate::{
     error::Error,
     error::{ErrorLocation, MalformedTtlvError, Result, SerdeError},
-    types::{ItemTag, TtlvBigInteger, TtlvByteString, TtlvType},
     types::{
         SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvTextString,
     },
+    types::{TtlvBigInteger, TtlvByteString, TtlvTag, TtlvType},
 };
 
 // --- Public interface ------------------------------------------------------------------------------------------------
@@ -148,7 +148,7 @@ pub(crate) struct TtlvDeserializer<'de: 'c, 'c> {
     // for container/group types (map, seq)
     #[allow(dead_code)]
     group_start: u64,
-    group_tag: Option<ItemTag>,
+    group_tag: Option<TtlvTag>,
     group_type: Option<TtlvType>,
     group_end: Option<u64>,
     group_fields: &'static [&'static str], // optional field handling: expected fields to compare to actual fields
@@ -157,17 +157,17 @@ pub(crate) struct TtlvDeserializer<'de: 'c, 'c> {
 
     // for the current field being parsed
     item_start: u64, // optional field handling: point to return to if field is missing
-    item_tag: Option<ItemTag>,
+    item_tag: Option<TtlvTag>,
     item_type: Option<TtlvType>,
     item_unexpected: bool, // optional field handling: is this tag wrong for the expected field (and thus is missing?)
     item_identifier: Option<String>,
 
     // lookup maps
-    tag_value_store: Rc<RefCell<HashMap<ItemTag, String>>>,
+    tag_value_store: Rc<RefCell<HashMap<TtlvTag, String>>>,
     matcher_rule_handlers: [(&'static str, MatcherRuleHandlerFn<'de, 'c>); 3],
 
     // diagnostic support
-    tag_path: Rc<RefCell<Vec<ItemTag>>>,
+    tag_path: Rc<RefCell<Vec<TtlvTag>>>,
 }
 
 type MatcherRuleHandlerFn<'de, 'c> =
@@ -210,13 +210,13 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     #[allow(clippy::too_many_arguments)]
     fn from_cursor(
         src: &'c mut Cursor<&'de [u8]>,
-        group_tag: ItemTag,
+        group_tag: TtlvTag,
         group_type: TtlvType,
         group_end: u64,
         group_fields: &'static [&'static str],
         group_homogenous: bool, // are all items in the group the same tag and type?
-        unit_enum_store: Rc<RefCell<HashMap<ItemTag, String>>>,
-        tag_path: Rc<RefCell<Vec<ItemTag>>>,
+        unit_enum_store: Rc<RefCell<HashMap<TtlvTag, String>>>,
+        tag_path: Rc<RefCell<Vec<TtlvTag>>>,
     ) -> Self {
         let group_start = src.position();
         let group_tag = Some(group_tag);
@@ -252,13 +252,13 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     /// # Errors
     ///
     /// If this function is unable to read 3 bytes from the given reader an [Error::IoError] will be returned.
-    pub(crate) fn read_tag<R>(mut src: R) -> std::io::Result<ItemTag>
+    pub(crate) fn read_tag<R>(mut src: R) -> std::io::Result<TtlvTag>
     where
         R: Read,
     {
         let mut raw_item_tag = [0u8; 3];
         src.read_exact(&mut raw_item_tag)?;
-        let item_tag = ItemTag::from(raw_item_tag);
+        let item_tag = TtlvTag::from(raw_item_tag);
         Ok(item_tag)
     }
 
@@ -388,7 +388,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         Ok(true)
     }
 
-    fn get_start_tag_type(&mut self) -> Result<(u64, ItemTag, TtlvType)> {
+    fn get_start_tag_type(&mut self) -> Result<(u64, TtlvTag, TtlvType)> {
         let (group_start, group_tag, group_type) = if self.pos() == 0 {
             // When invoked by Serde via from_slice() there is no prior call to next_key_seed() that reads the tag and
             // type as we are not visiting a map at that point. Thus we need to read the opening tag and type here.
@@ -404,8 +404,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         Ok((group_start, group_tag, group_type))
     }
 
-    fn prepare_to_descend(&mut self, name: &'static str) -> Result<(u64, ItemTag, TtlvType, u64)> {
-        let wanted_tag = ItemTag::from_str(name).map_err(|err| self.add_location_to_serde_error(err))?;
+    fn prepare_to_descend(&mut self, name: &'static str) -> Result<(u64, TtlvTag, TtlvType, u64)> {
+        let wanted_tag = TtlvTag::from_str(name).map_err(|err| self.add_location_to_serde_error(err))?;
 
         let (group_start, group_tag, group_type) = self.get_start_tag_type()?;
 
@@ -467,7 +467,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             ) {
                 return Ok(true);
             }
-        } else if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
+        } else if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&TtlvTag::from_str(wanted_tag)?) {
             if *seen_enum_val == wanted_val {
                 return Ok(true);
             }
@@ -477,8 +477,8 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     }
 
     fn handle_matcher_rule_ge(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, SerdeError> {
-        if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
-            if ItemTag::from_str(seen_enum_val)?.deref() >= ItemTag::from_str(wanted_val)?.deref() {
+        if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&TtlvTag::from_str(wanted_tag)?) {
+            if TtlvTag::from_str(seen_enum_val)?.deref() >= TtlvTag::from_str(wanted_val)?.deref() {
                 return Ok(true);
             }
         }
@@ -489,7 +489,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     fn handle_matcher_rule_in(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, SerdeError> {
         let wanted_values = wanted_val.strip_prefix('[').and_then(|v| v.strip_suffix(']'));
         if let Some(wanted_values) = wanted_values {
-            if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&ItemTag::from_str(wanted_tag)?) {
+            if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&TtlvTag::from_str(wanted_tag)?) {
                 for wanted_value in wanted_values.split(',') {
                     if *seen_enum_val == wanted_value.trim() {
                         return Ok(true);

@@ -2,8 +2,8 @@ use crate::error::{Error, ErrorLocation, MalformedTtlvError, SerdeError};
 use crate::tests::fixtures;
 use crate::tests::util::{make_limited_reader, make_reader, no_response_size_limit, reject_if_response_larger_than};
 use crate::types::{
-    ItemTag, SerializableTtlvType, TtlvBigInteger, TtlvBoolean, TtlvByteString, TtlvDateTime, TtlvEnumeration,
-    TtlvInteger, TtlvLongInteger, TtlvTextString, TtlvType,
+    SerializableTtlvType, TtlvBigInteger, TtlvBoolean, TtlvByteString, TtlvDateTime, TtlvEnumeration, TtlvInteger,
+    TtlvLongInteger, TtlvTag, TtlvTextString, TtlvType,
 };
 use crate::{from_reader, from_slice, Config};
 
@@ -123,8 +123,8 @@ fn test_io_error_unexpected_eof_with_slice() {
 fn test_malformed_ttlv() {
     use fixtures::malformed_ttlv::*;
 
-    let root_tag = ItemTag::from(*b"\xAA\xAA\xAA");
-    let inner_tag = ItemTag::from(*b"\xBB\xBB\xBB");
+    let root_tag = TtlvTag::from(*b"\xAA\xAA\xAA");
+    let inner_tag = TtlvTag::from(*b"\xBB\xBB\xBB");
 
     assert_matches!(
         from_slice::<RootType>(&ttlv_bytes_with_invalid_root_type()),
@@ -193,8 +193,8 @@ fn test_incorrect_serde_configuration_mismatched_types() {
     use fixtures::malformed_ttlv::*;
     use serde_derive::Deserialize;
 
-    let root_tag = ItemTag::from(*b"\xAA\xAA\xAA");
-    let inner_tag = ItemTag::from(*b"\xBB\xBB\xBB");
+    let root_tag = TtlvTag::from(*b"\xAA\xAA\xAA");
+    let inner_tag = TtlvTag::from(*b"\xBB\xBB\xBB");
 
     // $rust_type should be the Rust type that the $expected_ttlv_type should deserialize into, e.g. TTLV type
     // TtlvInteger deserializes into Rust type i32. $actual_ttlv_type is then an unexpected different TTLV type whose
@@ -284,8 +284,8 @@ fn test_incorrect_serde_configuration_invalid_tags() {
     use fixtures::malformed_ttlv::*;
     use serde_derive::Deserialize;
 
-    let root_tag = ItemTag::from(*b"\xAA\xAA\xAA");
-    let inner_tag = ItemTag::from(*b"\xBB\xBB\xBB");
+    let root_tag = TtlvTag::from(*b"\xAA\xAA\xAA");
+    let inner_tag = TtlvTag::from(*b"\xBB\xBB\xBB");
 
     macro_rules! test_invalid_tag {
         ($rust_type:ty, $actual_tlv_value:expr) => {
@@ -327,8 +327,8 @@ fn test_mismatched_serde_configuration() {
     use fixtures::simple::*;
     use serde_derive::Deserialize;
 
-    let root_tag = ItemTag::from(*b"\xAA\xAA\xAA");
-    let second_inner_tag = ItemTag::from(*b"\xCC\xCC\xCC");
+    let root_tag = TtlvTag::from(*b"\xAA\xAA\xAA");
+    let second_inner_tag = TtlvTag::from(*b"\xCC\xCC\xCC");
 
     // Attempt to deserialize a byte stream that contains a tag which we have not specified but we have configured
     // Serde derive to fail hard on the presence of unknown fields in the byte stream.

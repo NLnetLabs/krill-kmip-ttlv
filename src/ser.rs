@@ -10,7 +10,7 @@ use types::{TtlvBoolean, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvText
 
 use crate::{
     error::{Error, ErrorLocation, FieldType, MalformedTtlvError, Result, SerdeError},
-    types::{self, ItemTag, SerializableTtlvType, TtlvByteString, TtlvDateTime, TtlvType},
+    types::{self, SerializableTtlvType, TtlvByteString, TtlvDateTime, TtlvTag, TtlvType},
 };
 
 // --- Public interface ------------------------------------------------------------------------------------------------
@@ -140,7 +140,7 @@ impl TtlvSerializer {
     /// responsible for ensuring that the given tag value is big-endian encoded, i.e.
     /// assert_eq!(0x42007B_u32.to_be_bytes(), [00, 0x42, 0x00, 0x7B]); This will advance the buffer write position
     /// by 3 bytes.
-    fn write_tag(&mut self, item_tag: ItemTag, set_ignore_next_tag: bool) -> Result<()> {
+    fn write_tag(&mut self, item_tag: TtlvTag, set_ignore_next_tag: bool) -> Result<()> {
         if self.advance_state(FieldType::Tag)? {
             self.dst.write_all(&<[u8; 3]>::from(item_tag))?;
             if set_ignore_next_tag {
@@ -232,7 +232,7 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     /// received here to be the TTLV tag value to use when serializing the structure to the write buffer.
     fn serialize_tuple_struct(self, name: &'static str, _len: usize) -> Result<Self::SerializeTupleStruct> {
         self.write_tag(
-            ItemTag::from_str(name).map_err(|err| self.add_location_to_serde_error(err))?,
+            TtlvTag::from_str(name).map_err(|err| self.add_location_to_serde_error(err))?,
             false,
         )?;
         self.write_type(TtlvType::Structure)?;
@@ -361,7 +361,7 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         // So in this case we should skip writing out the tag and only write the type, length and value.
 
         self.write_tag(
-            ItemTag::from_str(name)
+            TtlvTag::from_str(name)
                 .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidTag(name.into())))?,
             false,
         )?;
@@ -386,7 +386,7 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
             name
         };
         self.write_tag(
-            ItemTag::from_str(name)
+            TtlvTag::from_str(name)
                 .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidTag(name.into())))?,
             false,
         )?;
@@ -417,7 +417,7 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
         // If the variant name is "Transparent" serialize the inner value directly, don't wrap it in a TTLV Structure.
         if variant == "Transparent" {
             self.write_tag(
-                ItemTag::from_str(name)
+                TtlvTag::from_str(name)
                     .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidTag(name.into())))?,
                 set_ignore_next_tag,
             )?;
@@ -441,7 +441,7 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     {
         if let Some(name) = name.strip_prefix("Transparent:") {
             self.write_tag(
-                ItemTag::from_str(name)
+                TtlvTag::from_str(name)
                     .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidTag(name.into())))?,
                 false,
             )?;
@@ -468,7 +468,7 @@ impl serde::ser::Serializer for &mut TtlvSerializer {
     /// named member fields for cases where there is no need to explicitly name the field type in order to use it.
     fn serialize_struct(self, name: &'static str, _len: usize) -> Result<Self::SerializeStruct> {
         self.write_tag(
-            ItemTag::from_str(name)
+            TtlvTag::from_str(name)
                 .map_err(|_| self.add_location_to_serde_error(SerdeError::InvalidTag(name.into())))?,
             false,
         )?;
