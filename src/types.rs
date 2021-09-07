@@ -105,7 +105,7 @@ impl TryFrom<u8> for TtlvType {
             0x07 => Ok(TtlvType::TextString),
             0x08 => Ok(TtlvType::ByteString),
             0x09 => Ok(TtlvType::DateTime),
-            // 0x0A => Ok(ItemType::Interval),
+            // 0x0A => Ok(TtlvType::Interval),
             0x0A => Err(MalformedTtlvError::UnsupportedType(0x0A)),
             _ => Err(MalformedTtlvError::InvalidType(value)),
         }
