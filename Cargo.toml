@@ -26,3 +26,6 @@ num-bigint = "0.4.0"
 pretty_assertions = "0.7.2"
 serde_bytes = "0.11.5"
 serde_derive = "1.0.126"
+
+# for examples/hex_to_text.rs
+hex = "0.4.3"
