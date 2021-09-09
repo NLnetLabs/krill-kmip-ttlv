@@ -342,7 +342,7 @@ fn test_incorrect_serde_configuration_invalid_tags() {
     }
 
     let err = from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&TtlvEnumeration(1))).unwrap_err();
-    assert_matches!(err.kind(), ErrorKind::SerdeError(SerdeError::InvalidVariantMacherSyntax(msg)) if msg == "if malformed variant matcher syntax");
+    assert_matches!(err.kind(), ErrorKind::SerdeError(SerdeError::InvalidVariantMatcherSyntax(msg)) if msg == "if malformed variant matcher syntax");
     assert_eq!(err.location().offset(), Some(ByteOffset(12)));
     assert_eq!(err.location().parent_tags(), &[root_tag()]);
     assert_eq!(err.location().tag(), Some(inner_tag()));

@@ -547,7 +547,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
                 }
             }
 
-            return Err(pinpoint!(SerdeError::InvalidVariantMacherSyntax(variant.into()), self));
+            return Err(pinpoint!(SerdeError::InvalidVariantMatcherSyntax(variant.into()), self));
         }
 
         Ok(false)
