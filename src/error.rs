@@ -6,30 +6,52 @@ use crate::types::{self, ByteOffset, FieldType, TtlvTag, TtlvType};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// (De)serialization failure due to writing/reading byte values that do not conform to the TTLV specification.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum MalformedTtlvError {
+    /// The value in the TTLV type byte is not one of the known valid values.
     InvalidType(u8),
+
+    /// The value in the TTLV length bytes are invalid for the type being read/written.
     InvalidLength {
         expected: u32,
         actual: u32,
         r#type: TtlvType,
     },
+
+    /// The value in the TTLV value bytes is not valid for the type being read/written.
     InvalidValue {
         r#type: TtlvType,
-    }, // we deliberately don't include the invalid bytes as they could be sensitive
+    },
+
+    /// A TTLV value being read/written is too large for the TTLV Structure that contains it.
+    Overflow {
+        field_end: ByteOffset,
+    },
+
+    /// The TTLV field being read/written is out of sequence (e.g. TLVV, VLTL, etc.).
     UnexpectedTtlvField {
         expected: FieldType,
         actual: FieldType,
     },
+
+    /// The TTLV type being read/written is not correct at this location.
+    ///
+    /// For example, all TTLV sequences must start with a TTLV Structure.
     UnexpectedType {
         expected: TtlvType,
         actual: TtlvType,
     },
+
+    /// The TTLV type byte value being read/written is valid but not supported.
     UnsupportedType(u8),
-    Overflow {
-        field_end: ByteOffset,
-    },
+
+    /// The length of the TTLV Structure being read/written could not be determined.
+    ///
+    /// For example this can occur when TTLV serialization failed for some reason to return and rewrite the length
+    /// bytes of a TTLV structure once its length was known and this was detected during serialization or later during
+    /// deserialization.
     UnknownStructureLength,
 }
 
