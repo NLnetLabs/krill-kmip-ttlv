@@ -156,7 +156,7 @@
 //! - In order to _deserialize_ into a Rust `enum` you must guide this crate to the correct variant to deserialize into.
 //!   To support the KMIP specifications this crate supports choosing the variant based on the value of a TTLV item that
 //!   was encountered earlier in the deserialization process. To handle this case each candidate `enum` variant must be
-//!   specially renamed with Serde derive using one of several supported special syntaxes:
+//!   specially renamed with Serde derive using one of several supported special matcher syntaxes:
 //!
 //!   - `#[serde(rename = "if 0xNNNNNN==0xMMMMMMMM")]` syntax will cause this crate to look for a previously encountered
 //!     TTLV Enumeration with tag value 0xNNNNNN and to select this `enum` variant if that Enumeration had value
