@@ -1,7 +1,7 @@
 //! Deserialize TTLV bytes into Rust data types.
 
 use std::{
-    cell::{RefCell, RefMut},
+    cell::RefCell,
     cmp::Ordering,
     collections::HashMap,
     convert::TryFrom,
@@ -18,9 +18,10 @@ use serde::{
 
 use crate::{
     error::Error,
-    error::{ErrorLocation, MalformedTtlvError, Result, SerdeError},
+    error::{ErrorKind, ErrorLocation, MalformedTtlvError, Result, SerdeError},
     types::{
-        SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvTextString,
+        self, FieldType, SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger,
+        TtlvLongInteger, TtlvStateMachine, TtlvStateMachineMode, TtlvTextString,
     },
     types::{TtlvBigInteger, TtlvByteString, TtlvTag, TtlvType},
 };
@@ -58,29 +59,8 @@ where
     T: Deserialize<'de>,
 {
     let cursor = &mut Cursor::new(bytes);
-    let (res, parent_tags) = {
-        let mut deserializer = TtlvDeserializer::from_slice(cursor);
-        let res = T::deserialize(&mut deserializer);
-        let parent_tags = deserializer.tag_path.take();
-        (res, parent_tags)
-    };
-
-    if let Err(mut err) = res {
-        match err {
-            Error::MalformedTtlv { ref mut location, .. } if location.offset.is_none() => {
-                location.offset = Some(cursor.position());
-            }
-            Error::SerdeError { ref mut location, .. } if location.offset.is_none() => {
-                location.offset = Some(cursor.position());
-            }
-            _ => {}
-        }
-
-        err.set_tag_location(parent_tags);
-        Err(err)
-    } else {
-        res
-    }
+    let mut deserializer = TtlvDeserializer::from_slice(cursor);
+    T::deserialize(&mut deserializer)
 }
 
 /// Read and deserialize bytes from the given reader.
@@ -102,28 +82,68 @@ where
     // block if the server doesn't close the connection after writing the response bytes (e.g. PyKMIP behaves this way).
     // We know from the TTLV specification that the initial TTL bytes must be 8 bytes long (3-byte tag, 1-byte type,
     // 4-byte length) so we attempt read to this "magic header" from the given stream.
+
+    fn cur_pos(buf_len: u64) -> ErrorLocation {
+        ErrorLocation::from(buf_len)
+    }
+
+    // Greedy closure capturing:
+    // -------------------------
+    // Note: In the read_xxx() calls below we take the cursor.position() _before_ the read because otherwise, in Rust
+    // 2018 Edition, the closure captures the cursor causing compilation to fail due to multiple mutable borrows of fhe
+    // cursor. Rust 2021 Edition implements so-called "Disjoint capture in closures" which may eliminate this problem.
+    // See: https://doc.rust-lang.org/nightly/edition-guide/rust-2021/disjoint-capture-in-closures.html
+
+    // Read the bytes of the first TTL (3 byte tag, 1 byte type, 4 byte len)
     let mut buf = vec![0; 8];
-    reader.read_exact(&mut buf)?;
+    let response_size;
+    let tag;
+    let r#type;
+    {
+        let mut state = TtlvStateMachine::new(TtlvStateMachineMode::Deserializing);
+        reader.read_exact(&mut buf).map_err(|err| pinpoint!(err, cur_pos(0)))?;
 
-    let mut cursor = Cursor::new(&mut buf);
-    let _tag = TtlvDeserializer::read_tag(&mut cursor)?;
-    let _type = TtlvDeserializer::read_type(&mut cursor)?;
-    let additional_len = TtlvDeserializer::read_length(&mut cursor)?;
+        // Extract and verify the first T (tag)
+        let mut cursor = Cursor::new(&mut buf);
+        let buf_len = cursor.position();
+        tag = TtlvDeserializer::read_tag(&mut cursor, Some(&mut state))
+            .map_err(|err| pinpoint!(err, cur_pos(buf_len)))?;
 
-    // The number of bytes to allocate is determined by the data being read. It could be a gazillion bytes and we'd
-    // panic trying to allocate it. The caller is therefore advised to define an upper bound if the source cannot be
-    // trusted.
-    if let Some(max_bytes) = config.max_bytes() {
-        if additional_len > max_bytes {
-            return Err(Error::ResponseSizeExceedsLimit(buf.len() + additional_len as usize));
+        // Extract and verify the second T (type)
+        let buf_len = cursor.position();
+        r#type = TtlvDeserializer::read_type(&mut cursor, Some(&mut state))
+            .map_err(|err| pinpoint!(err, cur_pos(buf_len), tag))?;
+
+        // Extract and verify the L (value length)
+        let buf_len = cursor.position();
+        let additional_len = TtlvDeserializer::read_length(&mut cursor, Some(&mut state))
+            .map_err(|err| pinpoint!(err, cur_pos(buf_len), tag, r#type))?;
+
+        // ------------------------------------------------------------------------------------------
+        // Now read the value bytes of the first TTLV item (i.e. the rest of the entire TTLV message)
+        // ------------------------------------------------------------------------------------------
+
+        // The number of bytes to allocate is determined by the data being read. It could be a gazillion bytes and we'd
+        // panic trying to allocate it. The caller is therefore advised to define an upper bound if the source cannot be
+        // trusted.
+        let buf_len = cursor.position();
+        response_size = buf_len + (additional_len as u64);
+        if let Some(max_bytes) = config.max_bytes() {
+            if response_size > (max_bytes as u64) {
+                let error = ErrorKind::ResponseSizeExceedsLimit(response_size as usize);
+                let location = ErrorLocation::from(cursor).with_tag(tag).with_type(r#type);
+                return Err(Error::pinpoint(error, location));
+            }
         }
     }
 
     // Warning: this will panic if it fails to allocate the requested amount of memory, at least until try_reserve() is
     // stabilized!
-    buf.reserve(additional_len as usize);
+    buf.reserve((response_size as usize) - buf.len());
     buf.resize(buf.capacity(), 0);
-    reader.read_exact(&mut buf[8..])?;
+    reader
+        .read_exact(&mut buf[8..])
+        .map_err(|err| Error::pinpoint(err, ErrorLocation::from(buf.len()).with_tag(tag).with_type(r#type)))?;
 
     from_slice(&buf)
 }
@@ -134,7 +154,19 @@ where
 // deserializer as they could leak sensitive data
 impl serde::de::Error for Error {
     fn custom<T: std::fmt::Display>(msg: T) -> Self {
-        TtlvDeserializer::locationless_serde_error(SerdeError::Other(msg.to_string()))
+        pinpoint!(SerdeError::Other(msg.to_string()), ErrorLocation::unknown())
+    }
+}
+
+impl<'de: 'c, 'c> From<&mut TtlvDeserializer<'de, 'c>> for ErrorLocation {
+    fn from(de: &mut TtlvDeserializer) -> Self {
+        de.location()
+    }
+}
+
+impl<'de: 'c, 'c> From<&TtlvDeserializer<'de, 'c>> for ErrorLocation {
+    fn from(de: &TtlvDeserializer) -> Self {
+        de.location()
     }
 }
 
@@ -144,6 +176,8 @@ trait ContextualErrorSupport {
 
 pub(crate) struct TtlvDeserializer<'de: 'c, 'c> {
     src: &'c mut Cursor<&'de [u8]>,
+
+    state: Rc<RefCell<TtlvStateMachine>>,
 
     // for container/group types (map, seq)
     #[allow(dead_code)]
@@ -171,7 +205,7 @@ pub(crate) struct TtlvDeserializer<'de: 'c, 'c> {
 }
 
 type MatcherRuleHandlerFn<'de, 'c> =
-    fn(&TtlvDeserializer<'de, 'c>, &str, &str) -> std::result::Result<bool, SerdeError>;
+    fn(&TtlvDeserializer<'de, 'c>, &str, &str) -> std::result::Result<bool, types::Error>;
 
 impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     // This is not a global read-only static array as they do not support lifetime specification which is required
@@ -189,6 +223,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     pub fn from_slice(cursor: &'c mut Cursor<&'de [u8]>) -> Self {
         Self {
             src: cursor,
+            state: Rc::new(RefCell::new(TtlvStateMachine::new(TtlvStateMachineMode::Deserializing))),
             group_start: 0,
             group_tag: None,
             group_type: None,
@@ -210,6 +245,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     #[allow(clippy::too_many_arguments)]
     fn from_cursor(
         src: &'c mut Cursor<&'de [u8]>,
+        state: Rc<RefCell<TtlvStateMachine>>,
         group_tag: TtlvTag,
         group_type: TtlvType,
         group_end: u64,
@@ -225,6 +261,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
 
         Self {
             src,
+            state,
             group_start,
             group_tag,
             group_type,
@@ -252,10 +289,18 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     /// # Errors
     ///
     /// If this function is unable to read 3 bytes from the given reader an [Error::IoError] will be returned.
-    pub(crate) fn read_tag<R>(mut src: R) -> std::io::Result<TtlvTag>
+    ///
+    /// If the state machine is not in the expected state then [Error::UnexpectedTtlvField] will be returned.
+    pub(crate) fn read_tag<R>(
+        mut src: R,
+        state: Option<&mut TtlvStateMachine>,
+    ) -> std::result::Result<TtlvTag, types::Error>
     where
         R: Read,
     {
+        if let Some(state) = state {
+            state.advance(FieldType::Tag)?;
+        }
         let mut raw_item_tag = [0u8; 3];
         src.read_exact(&mut raw_item_tag)?;
         let item_tag = TtlvTag::from(raw_item_tag);
@@ -274,13 +319,21 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     ///
     /// If the read byte is not a valid value according to the KMIP 1.0 TTLV specification or is a type which
     /// we do not yet support an error will be returned.
-    pub(crate) fn read_type<R>(mut src: R) -> Result<TtlvType>
+    ///
+    /// If the state machine is not in the expected state then [Error::UnexpectedTtlvField] will be returned.
+    pub(crate) fn read_type<R>(
+        mut src: R,
+        state: Option<&mut TtlvStateMachine>,
+    ) -> std::result::Result<TtlvType, types::Error>
     where
         R: Read,
     {
+        if let Some(state) = state {
+            state.advance(FieldType::Type)?;
+        }
         let mut raw_item_type = [0u8; 1];
         src.read_exact(&mut raw_item_type)?;
-        let item_type = TtlvType::try_from(raw_item_type[0]).map_err(TtlvDeserializer::locationless_ttlv_error)?;
+        let item_type = TtlvType::try_from(raw_item_type[0])?;
         Ok(item_type)
     }
 
@@ -293,10 +346,18 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     /// # Errors
     ///
     /// If this function is unable to read 4 bytes from the given reader an [Error::IoError] will be returned.
-    pub(crate) fn read_length<R>(mut src: R) -> Result<u32>
+    ///
+    /// If the state machine is not in the expected state then [Error::UnexpectedTtlvField] will be returned.
+    pub(crate) fn read_length<R>(
+        mut src: R,
+        state: Option<&mut TtlvStateMachine>,
+    ) -> std::result::Result<u32, types::Error>
     where
         R: Read,
     {
+        if let Some(state) = state {
+            state.advance(FieldType::Length)?;
+        }
         let mut value_length = [0u8; 4];
         src.read_exact(&mut value_length)?;
         Ok(u32::from_be_bytes(value_length))
@@ -307,24 +368,48 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     /// Returns Ok(true) if there is data available, Ok(false) if the end of the current group (TTLV sequence or
     /// structure) has been reached or an I/O error or `MalformedTtlvError` (e.g. if the tag or type are invalid or if
     /// the read cursor is past the last byte of the group).
-    fn read_item_key(&mut self) -> Result<bool> {
+    fn read_item_key(&mut self, use_group_fields: bool) -> Result<bool> {
         if let Some(group_end) = self.group_end {
             match self.pos().cmp(&group_end) {
-                Ordering::Less => {}
-                Ordering::Equal => return Ok(false),
+                Ordering::Less => {
+                    // More bytes to read
+                }
+                Ordering::Equal => {
+                    // End of group reached
+                    return Ok(false);
+                }
                 Ordering::Greater => {
-                    return Err(self.add_location_to_ttlv_error(MalformedTtlvError::Overflow { field_end: group_end }));
+                    // Error: Read cursor is beyond the end of the current TTLV group
+                    let error = MalformedTtlvError::overflow(group_end);
+                    let location = self.location();
+                    return Err(Error::pinpoint(error, location));
                 }
             }
         } else {
             unreachable!()
         }
 
-        self.item_start = self.pos() as u64;
-        self.item_tag = None;
-        self.item_type = None;
-        self.item_tag = Some(Self::read_tag(&mut self.src)?);
-        self.item_type = Some(Self::read_type(&mut self.src)?);
+        if use_group_fields {
+            self.item_start = self.group_start;
+            self.item_tag = self.group_tag;
+            self.item_type = self.group_type;
+        } else {
+            self.item_start = self.pos() as u64;
+            self.item_tag = None;
+            self.item_type = None;
+
+            let loc = self.location(); // See the note above about working around greedy closure capturing
+            self.item_tag = Some(
+                Self::read_tag(&mut self.src, Some(&mut self.state.borrow_mut()))
+                    .map_err(|err| Error::pinpoint(err, loc))?,
+            );
+
+            let loc = self.location(); // See the note above about working around greedy closure capturing
+            self.item_type = Some(
+                Self::read_type(&mut self.src, Some(&mut self.state.borrow_mut()))
+                    .map_err(|err| Error::pinpoint(err, loc))?,
+            );
+        }
 
         // As we are invoked for every field that Serde derive found on the target Rust struct we need to handle the
         // not just the case where the expected tag is present in the byte stream in the expected position in the
@@ -393,8 +478,17 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             // When invoked by Serde via from_slice() there is no prior call to next_key_seed() that reads the tag and
             // type as we are not visiting a map at that point. Thus we need to read the opening tag and type here.
             let group_start = self.src.position();
-            let group_tag = Self::read_tag(&mut self.src)?;
-            let group_type = Self::read_type(&mut self.src)?;
+
+            let loc = self.location(); // See the note above about working around greedy closure capturing
+            let group_tag =
+                Self::read_tag(&mut self.src, Some(&mut self.state.borrow_mut())).map_err(|err| pinpoint!(err, loc))?;
+            self.item_tag = Some(group_tag);
+
+            let loc = self.location(); // See the note above about working around greedy closure capturing
+            let group_type = Self::read_type(&mut self.src, Some(&mut self.state.borrow_mut()))
+                .map_err(|err| pinpoint!(err, loc))?;
+            self.item_type = Some(group_type);
+
             (group_start, group_tag, group_type)
         } else {
             // When invoked while visiting a map the opening tag and type of the struct header will have already been
@@ -405,30 +499,39 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
     }
 
     fn prepare_to_descend(&mut self, name: &'static str) -> Result<(u64, TtlvTag, TtlvType, u64)> {
-        let wanted_tag = TtlvTag::from_str(name).map_err(|err| self.add_location_to_serde_error(err))?;
+        let loc = self.location(); // See the note above about working around greedy closure capturing
+        let wanted_tag = TtlvTag::from_str(name).map_err(|err| pinpoint!(err, loc))?;
 
         let (group_start, group_tag, group_type) = self.get_start_tag_type()?;
 
         if group_tag != wanted_tag {
-            return Err(self.add_location_to_serde_error(SerdeError::UnexpectedTag {
-                expected: wanted_tag,
-                actual: group_tag,
-            }));
+            return Err(pinpoint!(
+                SerdeError::UnexpectedTag {
+                    expected: wanted_tag,
+                    actual: group_tag
+                },
+                self
+            ));
         }
 
         if group_type != TtlvType::Structure {
-            return Err(self.add_location_to_ttlv_error(MalformedTtlvError::UnexpectedType {
-                expected: TtlvType::Structure,
-                actual: group_type,
-            }));
+            return Err(pinpoint!(
+                MalformedTtlvError::UnexpectedType {
+                    expected: TtlvType::Structure,
+                    actual: group_type
+                },
+                self
+            ));
         }
 
-        let group_len = Self::read_length(&mut self.src)?;
+        let loc = self.location(); // See the note above about working around greedy closure capturing
+        let group_len =
+            Self::read_length(&mut self.src, Some(&mut self.state.borrow_mut())).map_err(|err| pinpoint!(err, loc))?;
         let group_end = self.pos() + (group_len as u64);
         Ok((group_start, group_tag, group_type, group_end))
     }
 
-    fn is_variant_applicable(&self, variant: &'static str) -> std::result::Result<bool, SerdeError> {
+    fn is_variant_applicable(&self, variant: &'static str) -> Result<bool> {
         // str::split_once() wasn't stablized until Rust 1.52.0 but as we want to be usable by Krill, and Krill
         // currently supports Rust >= 1.47.0, we use our own split_once() implementation.
         pub fn split_once<'a>(value: &'a str, delimiter: &str) -> Option<(&'a str, &'a str)> {
@@ -440,17 +543,17 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         if let Some(rule) = variant.strip_prefix("if ") {
             for (op, handler_fn) in self.matcher_rule_handlers {
                 if let Some((wanted_tag, wanted_val)) = split_once(rule, op) {
-                    return handler_fn(self, wanted_tag.trim(), wanted_val.trim());
+                    return handler_fn(self, wanted_tag.trim(), wanted_val.trim()).map_err(|err| pinpoint!(err, self));
                 }
             }
 
-            return Err(SerdeError::InvalidVariantMacherSyntax(variant.into()));
+            return Err(pinpoint!(SerdeError::InvalidVariantMacherSyntax(variant.into()), self));
         }
 
         Ok(false)
     }
 
-    fn handle_matcher_rule_eq(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, SerdeError> {
+    fn handle_matcher_rule_eq(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, types::Error> {
         if wanted_tag == "type" {
             // See if wanted_val is a literal string that matches the TTLV type we are currently deserializing
             // TODO: Add BigInteger and Interval when supported
@@ -467,16 +570,18 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
             ) {
                 return Ok(true);
             }
-        } else if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&TtlvTag::from_str(wanted_tag)?) {
-            if *seen_enum_val == wanted_val {
-                return Ok(true);
+        } else if let Ok(wanted_tag) = TtlvTag::from_str(wanted_tag) {
+            if let Some(seen_enum_val) = self.lookup_tag_value(wanted_tag) {
+                if seen_enum_val == wanted_val {
+                    return Ok(true);
+                }
             }
         }
 
         Ok(false)
     }
 
-    fn handle_matcher_rule_ge(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, SerdeError> {
+    fn handle_matcher_rule_ge(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, types::Error> {
         if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&TtlvTag::from_str(wanted_tag)?) {
             if TtlvTag::from_str(seen_enum_val)?.deref() >= TtlvTag::from_str(wanted_val)?.deref() {
                 return Ok(true);
@@ -486,7 +591,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         Ok(false)
     }
 
-    fn handle_matcher_rule_in(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, SerdeError> {
+    fn handle_matcher_rule_in(&self, wanted_tag: &str, wanted_val: &str) -> std::result::Result<bool, types::Error> {
         let wanted_values = wanted_val.strip_prefix('[').and_then(|v| v.strip_suffix(']'));
         if let Some(wanted_values) = wanted_values {
             if let Some(seen_enum_val) = self.tag_value_store.borrow().get(&TtlvTag::from_str(wanted_tag)?) {
@@ -501,54 +606,40 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         Ok(false)
     }
 
-    fn add_location_to_error(&self, mut err: Error) -> Error {
-        match err {
-            Error::MalformedTtlv { ref mut location, .. } => *location = self.build_error_location(),
-            Error::SerdeError { ref mut location, .. } => *location = self.build_error_location(),
-            _ => (),
+    fn location(&self) -> ErrorLocation {
+        let mut loc = ErrorLocation::at(self.src.position().into()).with_parent_tags(&self.tag_path.borrow());
+
+        if let Some(tag) = self.item_tag {
+            loc = loc.with_tag(tag);
         }
 
-        err
+        if let Some(r#type) = self.item_type {
+            loc = loc.with_type(r#type);
+        }
+
+        loc
     }
 
-    fn build_error_location(&self) -> ErrorLocation {
-        ErrorLocation {
-            offset: Some(self.pos()),
-            parent_tags: self.tag_path.take(),
-            tag: self.item_tag,
-            r#type: self.item_type,
-        }
+    fn remember_tag_value<T>(&self, tag: TtlvTag, value: T)
+    where
+        String: From<T>,
+    {
+        self.tag_value_store.borrow_mut().insert(tag, value.into());
     }
 
-    fn locationless_serde_error(err: SerdeError) -> Error {
-        Error::SerdeError {
-            error: err,
-            location: ErrorLocation::default(),
-        }
+    fn lookup_tag_value(&self, tag: TtlvTag) -> Option<String> {
+        self.tag_value_store.borrow().get(&tag).cloned()
     }
 
-    fn add_location_to_serde_error(&self, err: SerdeError) -> Error {
-        Error::SerdeError {
-            error: err,
-            location: self.build_error_location(),
-        }
-    }
-
-    fn locationless_ttlv_error(err: MalformedTtlvError) -> Error {
-        Error::MalformedTtlv {
-            error: err,
-            location: ErrorLocation::default(),
-        }
-    }
-
-    fn add_location_to_ttlv_error(&self, err: MalformedTtlvError) -> Error {
-        Error::MalformedTtlv {
-            error: err,
-            location: self.build_error_location(),
-        }
+    fn seek_forward(&mut self, num_bytes_to_skip: u32) -> Result<u64> {
+        use std::io::Seek;
+        self.src
+            .seek(std::io::SeekFrom::Current(num_bytes_to_skip as i64))
+            .map_err(|err| pinpoint!(err, self))
     }
 }
 
+// TODO: remove this
 impl<'de: 'c, 'c> ContextualErrorSupport for TtlvDeserializer<'de, 'c> {
     fn pos(&self) -> u64 {
         self.src.position()
@@ -558,7 +649,10 @@ impl<'de: 'c, 'c> ContextualErrorSupport for TtlvDeserializer<'de, 'c> {
 macro_rules! unsupported_type {
     ($deserialize:ident, $type:ident) => {
         fn $deserialize<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value> {
-            Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType(stringify!($type))))
+            Err(pinpoint!(
+                SerdeError::UnsupportedRustType(stringify!($type)),
+                self
+            ))
         }
     };
 }
@@ -613,8 +707,11 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
 
         let mut struct_cursor = self.src.clone();
 
+        self.tag_path.borrow_mut().push(group_tag);
+
         let descendent_parser = TtlvDeserializer::from_cursor(
             &mut struct_cursor,
+            self.state.clone(),
             group_tag,
             group_type,
             group_end,
@@ -624,18 +721,31 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
             self.tag_path.clone(),
         );
 
-        self.tag_path.borrow_mut().push(group_tag);
-
         let r = visitor.visit_map(descendent_parser); // jumps to impl MapAccess below
-
-        if r.is_ok() {
-            self.tag_path.borrow_mut().pop();
-        }
 
         // The descendant parser cursor advanced but ours did not. Skip the tag that we just read.
         self.src.set_position(struct_cursor.position());
 
-        r
+        match r {
+            Ok(_) => {
+                self.tag_path.borrow_mut().pop();
+                r
+            }
+            Err(err) => {
+                // Errors can be raised directly by Serde Derive, e.g. SerdeError::Other("missing field"), which
+                // necessarily have ErrorLocation::is_unknown() as Serde Derive is not aware of our ErrorLocation type.
+                // When that happens, this is the first opportunity after calling `visitor.visit_map()` that we have to
+                // add the missing location data. However, if the error _was_ raised by our code and not by Serde
+                // Derive it probably already has location details. Therefore we "merge" the current location into the
+                // error so that only missing details are added if needed as the existing location details may more
+                // point more accurately to the source of the problem than we are able to indicate here (we don't know
+                // where in the `visit_map()` process the issue occured, on which field and at which byte, we just use
+                // the current cursor position and hope that is good enough).
+                let (kind, loc) = err.into_inner();
+                let new_loc = loc.merge(self.location());
+                Err(Error::new(kind, new_loc))
+            }
+        }
     }
 
     /// Deserialize the bytes at the current cursor position to a Rust struct with a single field.
@@ -677,18 +787,15 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
-        let seq_start = self.item_start;
         let seq_tag = self.item_tag.unwrap();
         let seq_type = self.item_type.unwrap();
         let seq_end = self.group_end.unwrap();
 
-        // We just read the tag, type and length but each item in the sequence needs to be read in its entirety as a
-        // whole TTLV item so rewind the cursor that we give to the SeqAccess impl back to the start of the TTLV item.
         let mut seq_cursor = self.src.clone();
-        seq_cursor.set_position(seq_start);
 
         let descendent_parser = TtlvDeserializer::from_cursor(
             &mut seq_cursor,
+            self.state.clone(),
             seq_tag,
             seq_type,
             seq_end,
@@ -731,8 +838,24 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
-        // The tag has already been read, now we are handling the value. How can we know that this item is NOT the one
-        // that was intended to fill the Option and thus the item is missing and the Option should be
+        // The tag and type have already been read, now we are handling the value. How can we know that this item is
+        // NOT the one that was intended to fill the Option and thus the item is missing and the Option should be
+        // populated with None. This can happen e.g. in the case of a KMIP response the response batch item structure
+        // 0x42000F has several optional member fields including the operation code field 0x42005C. The operation code
+        // field is only required to be present in the response if it was present in the request. The order of fields
+        // in a KMIP structure is also required to match that of the spec and the operation code field is the first
+        // item in the response batch item structure.
+        //
+        // Thus if we define a Rust struct for the response batch item TTLV structure the first member must be an
+        // optional operation code, but the first batch item structure member field present in the TTLV response might
+        // be another response batch item field such as result status 0x42007F. We handle this by detecting the
+        // mismatch between Rust field name (i.e. TTLV tag) and the actual tag code found in the TTLV bytes. If they do
+        // not match and the Rust field was of type Option then we respond as if the field value was read and the
+        // Option should be set to None, but we reset the read cursor in the TTLV byte stream so that we will read this
+        // "wrong" tag again as it should match one of the as yet unprocessed member fields in the Rust struct.
+        //
+        // Finally we have to reset the state machine as we just read a tag and type and the next TTLV fields should be
+        // the length and value, but we are resetting the read cursor to point at the tag again.
 
         // Is this the field we expected at this point?
         if self.item_unexpected {
@@ -740,6 +863,8 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
             // Report back that the optional item was not found and rewind the read cursor so that we will visit this
             // TTLV tag again.
             self.src.set_position(self.item_start);
+            // Reset the state machine to expect a tag as it's currently expecting a value but should expect a tag.
+            self.state.borrow_mut().reset();
             visitor.visit_none()
         } else {
             visitor.visit_some(self)
@@ -864,10 +989,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         // Check each enum variant name to see if it is of the form "if enum_tag==enum_val" and if so extract
         // enum_tag and enum_value:
         for v in variants {
-            if self
-                .is_variant_applicable(v)
-                .map_err(|err| self.add_location_to_serde_error(err))?
-            {
+            if self.is_variant_applicable(v)? {
                 self.item_identifier = Some(v.to_string());
                 break;
             }
@@ -883,14 +1005,16 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
                 //    the call hierarchy. This enables handling of cases such as `AttributeName` string field that
                 //    indicates the enum variant represented by the `AttributeValue`.
                 if self.item_identifier.is_none() {
-                    let enum_val = TtlvEnumeration::read(self.src).map_err(|err| self.add_location_to_error(err))?;
+                    let loc = self.location(); // See the note above about working around greedy closure capturing
+                    self.state
+                        .borrow_mut()
+                        .advance(FieldType::LengthAndValue)
+                        .map_err(|err| pinpoint!(err, loc.clone()))?;
+                    let enum_val = TtlvEnumeration::read(self.src).map_err(|err| pinpoint!(err, loc))?;
                     let enum_hex = format!("0x{}", hex::encode_upper(enum_val.to_be_bytes()));
 
                     // Insert or replace the last value seen for this enum in our enum value lookup table
-                    {
-                        let mut map: RefMut<_> = self.tag_value_store.borrow_mut();
-                        map.insert(self.item_tag.unwrap(), enum_hex.clone());
-                    }
+                    self.remember_tag_value(self.item_tag.unwrap(), &enum_hex);
 
                     self.item_identifier = Some(enum_hex);
                 }
@@ -922,18 +1046,19 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
                 // raise a `SerdeError::UnexpectedType` error here instead as really we are being asked to deserialize a
                 // non-enum TTLV item into a Rust enum which is a type expectation mismatch.
                 if self.item_identifier.is_none() {
-                    Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
+                    let error = SerdeError::UnexpectedType {
                         expected: TtlvType::Enumeration,
                         actual: item_type,
-                    }))
+                    };
+                    Err(pinpoint!(error, self))
                 } else {
                     visitor.visit_enum(&mut *self) // jumps to impl EnumAccess below
                 }
             }
-            None => Err(self.add_location_to_serde_error(SerdeError::Other(format!(
-                "TTLV item type for enum '{}' has not yet been read",
-                name
-            )))),
+            None => {
+                let error = SerdeError::Other(format!("TTLV item type for enum '{}' has not yet been read", name));
+                Err(pinpoint!(error, self))
+            }
         }
     }
 
@@ -944,7 +1069,7 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         if let Some(identifier) = &self.item_identifier {
             visitor.visit_str(identifier)
         } else {
-            Err(self.add_location_to_serde_error(SerdeError::MissingIdentifier))
+            Err(pinpoint!(SerdeError::MissingIdentifier, self))
         }
     }
 
@@ -952,15 +1077,23 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
+        let loc = self.location(); // See the note above about working around greedy closure capturing
+        self.state
+            .borrow_mut()
+            .advance(FieldType::LengthAndValue)
+            .map_err(|err| pinpoint!(err, loc))?;
         match self.item_type {
             Some(TtlvType::Integer) | None => {
-                let v = TtlvInteger::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
+                let v = TtlvInteger::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
                 visitor.visit_i32(*v)
             }
-            Some(other_type) => Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
-                expected: TtlvType::Integer,
-                actual: other_type,
-            })),
+            Some(other_type) => {
+                let error = SerdeError::UnexpectedType {
+                    expected: TtlvType::Integer,
+                    actual: other_type,
+                };
+                Err(pinpoint!(error, self))
+            }
         }
     }
 
@@ -968,19 +1101,27 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
+        let loc = self.location(); // See the note above about working around greedy closure capturing
+        self.state
+            .borrow_mut()
+            .advance(FieldType::LengthAndValue)
+            .map_err(|err| pinpoint!(err, loc))?;
         match self.item_type {
             Some(TtlvType::LongInteger) | None => {
-                let v = TtlvLongInteger::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
+                let v = TtlvLongInteger::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
                 visitor.visit_i64(*v)
             }
             Some(TtlvType::DateTime) => {
-                let v = TtlvDateTime::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
+                let v = TtlvDateTime::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
                 visitor.visit_i64(*v)
             }
-            Some(other_type) => Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
-                expected: TtlvType::LongInteger,
-                actual: other_type,
-            })),
+            Some(other_type) => {
+                let error = SerdeError::UnexpectedType {
+                    expected: TtlvType::LongInteger,
+                    actual: other_type,
+                };
+                Err(pinpoint!(error, self))
+            }
         }
     }
 
@@ -988,15 +1129,23 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
+        let loc = self.location(); // See the note above about working around greedy closure capturing
+        self.state
+            .borrow_mut()
+            .advance(FieldType::LengthAndValue)
+            .map_err(|err| pinpoint!(err, loc))?;
         match self.item_type {
             Some(TtlvType::Boolean) | None => {
-                let v = TtlvBoolean::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
+                let v = TtlvBoolean::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
                 visitor.visit_bool(*v)
             }
-            Some(other_type) => Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
-                expected: TtlvType::Boolean,
-                actual: other_type,
-            })),
+            Some(other_type) => {
+                let error = SerdeError::UnexpectedType {
+                    expected: TtlvType::Boolean,
+                    actual: other_type,
+                };
+                Err(pinpoint!(error, self))
+            }
         }
     }
 
@@ -1004,23 +1153,27 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
+        let loc = self.location(); // See the note above about working around greedy closure capturing
+        self.state
+            .borrow_mut()
+            .advance(FieldType::LengthAndValue)
+            .map_err(|err| pinpoint!(err, loc))?;
         match self.item_type {
             Some(TtlvType::TextString) | None => {
-                let v = TtlvTextString::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
-                let str = v.0;
+                let str = TtlvTextString::read(&mut self.src).map_err(|err| pinpoint!(err, self.location()))?;
 
                 // Insert or replace the last value seen for this tag in our value lookup table
-                {
-                    let mut map: RefMut<_> = self.tag_value_store.borrow_mut();
-                    map.insert(self.item_tag.unwrap(), str.clone());
-                }
+                self.remember_tag_value(self.item_tag.unwrap(), str.0.clone());
 
-                visitor.visit_string(str)
+                visitor.visit_string(str.0)
             }
-            Some(other_type) => Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
-                expected: TtlvType::TextString,
-                actual: other_type,
-            })),
+            Some(other_type) => {
+                let error = SerdeError::UnexpectedType {
+                    expected: TtlvType::TextString,
+                    actual: other_type,
+                };
+                Err(pinpoint!(error, self))
+            }
         }
     }
 
@@ -1029,15 +1182,23 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
+        let loc = self.location(); // See the note above about working around greedy closure capturing
+        self.state
+            .borrow_mut()
+            .advance(FieldType::LengthAndValue)
+            .map_err(|err| pinpoint!(err, loc))?;
         match self.item_type {
             Some(TtlvType::ByteString) | Some(TtlvType::BigInteger) | None => {
-                let v = TtlvByteString::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
+                let v = TtlvByteString::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
                 visitor.visit_byte_buf(v.0)
             }
-            Some(other_type) => Err(self.add_location_to_serde_error(SerdeError::UnexpectedType {
-                expected: TtlvType::ByteString,
-                actual: other_type,
-            })),
+            Some(other_type) => {
+                let error = SerdeError::UnexpectedType {
+                    expected: TtlvType::ByteString,
+                    actual: other_type,
+                };
+                Err(pinpoint!(error, self))
+            }
         }
     }
 
@@ -1053,36 +1214,60 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
         // type dependent. For some types it is the entire byte size of the TTLV item, for others it is the length of
         // the TTLV item value excluding padding. For TTLV Structures skip the whole structure content. For other types
         // deserialize them but discard the deserialized value.
-        match self.item_type.unwrap() {
-            TtlvType::Structure => {
-                // Use the TTLV item length to skip the structure.
-                let num_bytes_to_skip = TtlvDeserializer::read_length(&mut self.src)?;
-                use std::io::Seek;
-                self.src.seek(std::io::SeekFrom::Current(num_bytes_to_skip as i64))?;
-            }
-            TtlvType::Integer => {
-                TtlvInteger::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
-            }
-            TtlvType::LongInteger => {
-                TtlvLongInteger::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
-            }
-            TtlvType::BigInteger => {
-                TtlvBigInteger::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
-            }
-            TtlvType::Enumeration => {
-                TtlvEnumeration::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
-            }
-            TtlvType::Boolean => {
-                TtlvBoolean::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
-            }
-            TtlvType::TextString => {
-                TtlvTextString::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
-            }
-            TtlvType::ByteString => {
-                TtlvByteString::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
-            }
-            TtlvType::DateTime => {
-                TtlvDateTime::read(&mut self.src).map_err(|err| self.add_location_to_error(err))?;
+
+        if matches!(self.item_type.unwrap(), TtlvType::Structure) {
+            // We're going to read the structure length and then skip it without reading the value
+            // Reading the length advances the state machine past the length but not past the value
+            // so we have to do that manually.
+
+            // Use the TTLV item length to skip the structure.
+            let num_bytes_to_skip = TtlvDeserializer::read_length(&mut self.src, Some(&mut self.state.borrow_mut()))
+                .map_err(|err| pinpoint!(err, self.location()))?;
+
+            // Skip the value bytes
+            self.seek_forward(num_bytes_to_skip)?;
+
+            // Tell the state machine that we're finished reading this TTLV item
+            self.state.borrow_mut().reset();
+        } else {
+            // We're going to read the value length, read the value and discard the value, all without involving
+            // the state machine, so tell it what we are about to do.
+            // TODO: pass the state machine to the ::read() functions instead and have them update it.
+            let loc = self.location(); // See the note above about working around greedy closure capturing
+            self.state
+                .borrow_mut()
+                .advance(FieldType::LengthAndValue)
+                .map_err(|err| pinpoint!(err, loc))?;
+
+            match self.item_type.unwrap() {
+                TtlvType::Structure => {
+                    // We handled this case above
+                    unreachable!()
+                }
+                TtlvType::Integer => {
+                    TtlvInteger::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
+                }
+                TtlvType::LongInteger => {
+                    TtlvLongInteger::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
+                }
+                TtlvType::BigInteger => {
+                    TtlvBigInteger::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
+                }
+                TtlvType::Enumeration => {
+                    TtlvEnumeration::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
+                }
+                TtlvType::Boolean => {
+                    TtlvBoolean::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
+                }
+                TtlvType::TextString => {
+                    TtlvTextString::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
+                }
+                TtlvType::ByteString => {
+                    TtlvByteString::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
+                }
+                TtlvType::DateTime => {
+                    TtlvDateTime::read(&mut self.src).map_err(|err| pinpoint!(err, self))?;
+                }
             }
         }
 
@@ -1111,28 +1296,28 @@ impl<'de: 'c, 'c> Deserializer<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
-        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("unit struct")))
+        Err(pinpoint!(SerdeError::UnsupportedRustType("unit struct"), self))
     }
 
     fn deserialize_tuple_struct<V>(self, _name: &'static str, _len: usize, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("tuple struct")))
+        Err(pinpoint!(SerdeError::UnsupportedRustType("tuple struct"), self))
     }
 
     fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("tuple")))
+        Err(pinpoint!(SerdeError::UnsupportedRustType("tuple"), self))
     }
 
     fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("any")))
+        Err(pinpoint!(SerdeError::UnsupportedRustType("any"), self))
     }
 }
 
@@ -1144,19 +1329,12 @@ impl<'de: 'c, 'c> MapAccess<'de> for TtlvDeserializer<'de, 'c> {
     where
         K: serde::de::DeserializeSeed<'de>,
     {
-        fn inner<'de, 'c, K>(serializer: &mut TtlvDeserializer<'de, 'c>, seed: K) -> Result<Option<K::Value>>
-        where
-            K: serde::de::DeserializeSeed<'de>,
-        {
-            if serializer.read_item_key()? {
-                seed.deserialize(serializer).map(Some) // jumps to deserialize_identifier() above
-            } else {
-                // The end of the group was reached
-                Ok(None)
-            }
+        if self.read_item_key(false)? {
+            seed.deserialize(self).map(Some) // jumps to deserialize_identifier() above
+        } else {
+            // The end of the group was reached
+            Ok(None)
         }
-
-        inner(self, seed).map_err(|err| self.add_location_to_error(err))
     }
 
     fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value>
@@ -1175,13 +1353,15 @@ impl<'de: 'c, 'c> SeqAccess<'de> for TtlvDeserializer<'de, 'c> {
     where
         T: serde::de::DeserializeSeed<'de>,
     {
-        if !self.read_item_key()? {
+        if !self.read_item_key(self.group_item_count == 0)? {
             // The end of the containing group was reached
             Ok(None)
         } else if self.group_homogenous && (self.item_tag != self.group_tag || self.item_type != self.group_type) {
             // The next tag is not part of the sequence.
             // Walk the cursor back before the tag because we didn't consume it.
             self.src.set_position(self.item_start);
+            // And reset the state machine to expect a tag again
+            self.state.borrow_mut().reset();
             Ok(None)
         } else {
             // The tag and type match that of the first item in the sequence, process this element.
@@ -1225,19 +1405,27 @@ impl<'de: 'c, 'c> VariantAccess<'de> for &mut TtlvDeserializer<'de, 'c> {
     {
         // The caller has provided a Rust enum variant in tuple form, i.e. SomeEnum(a, b, c), and expects us to
         // deserialize the right number of items to match those fields.
-        let seq_len = TtlvDeserializer::read_length(&mut self.src)?;
+        let loc = self.location(); // See the note above about working around greedy closure capturing
+        let seq_len = TtlvDeserializer::read_length(&mut self.src, Some(&mut self.state.borrow_mut()))
+            .map_err(|err| pinpoint!(err, loc))?;
         let seq_start = self.pos() as u64;
         let seq_end = seq_start + (seq_len as u64);
-        let seq_tag = TtlvDeserializer::read_tag(&mut self.src)?;
-        let seq_type = TtlvDeserializer::read_type(&mut self.src)?;
 
-        // We just read the tag, type and length but each item in the sequence needs to be read in its entirety as a
-        // whole TTLV item so rewind the cursor that we give to the SeqAccess impl back to the start of the TTLV item.
+        let loc = self.location(); // See the note above about working around greedy closure capturing
+        let seq_tag = TtlvDeserializer::read_tag(&mut self.src, Some(&mut self.state.borrow_mut()))
+            .map_err(|err| pinpoint!(err, loc))?;
+        self.item_tag = Some(seq_tag);
+
+        let loc = self.location(); // See the note above about working around greedy closure capturing
+        let seq_type = TtlvDeserializer::read_type(&mut self.src, Some(&mut self.state.borrow_mut()))
+            .map_err(|err| pinpoint!(err, loc))?;
+        self.item_type = Some(seq_type);
+
         let mut seq_cursor = self.src.clone();
-        seq_cursor.set_position(seq_start);
 
         let descendent_parser = TtlvDeserializer::from_cursor(
             &mut seq_cursor,
+            self.state.clone(),
             seq_tag,
             seq_type,
             seq_end,
@@ -1259,6 +1447,6 @@ impl<'de: 'c, 'c> VariantAccess<'de> for &mut TtlvDeserializer<'de, 'c> {
     where
         V: Visitor<'de>,
     {
-        Err(self.add_location_to_serde_error(SerdeError::UnsupportedRustType("struct variant")))
+        Err(pinpoint!(SerdeError::UnsupportedRustType("struct variant"), self))
     }
 }

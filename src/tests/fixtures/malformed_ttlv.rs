@@ -1,6 +1,6 @@
 use serde_derive::Deserialize;
 
-use crate::types::{SerializableTtlvType, TtlvType};
+use crate::types::{SerializableTtlvType, TtlvTag, TtlvType};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename = "0xAAAAAA")]
@@ -26,22 +26,30 @@ pub(crate) struct ByteStringRootType {
     pub a: Vec<u8>,
 }
 
-pub(crate) fn ttlv_bytes_with_invalid_root_type() -> Vec<u8> {
-    let test_data = format!("AAAAAA  {:02X}  00000020", invalid_root_type());
-    hex::decode(test_data.replace(" ", "")).unwrap()
+pub(crate) fn root_tag() -> TtlvTag {
+    TtlvTag::from(*b"\xAA\xAA\xAA")
+}
+
+pub(crate) fn inner_tag() -> TtlvTag {
+    TtlvTag::from(*b"\xBB\xBB\xBB")
 }
 
 pub(crate) fn invalid_root_type() -> u8 {
     0
 }
 
-pub(crate) fn ttlv_bytes_with_wrong_root_type() -> Vec<u8> {
-    let test_data = format!("AAAAAA  {:02X}  00000020", wrong_root_type() as u8);
+pub(crate) fn wrong_root_type() -> TtlvType {
+    TtlvType::Integer
+}
+
+pub(crate) fn ttlv_bytes_with_invalid_root_type() -> Vec<u8> {
+    let test_data = format!("AAAAAA  {:02X}  00000020", invalid_root_type());
     hex::decode(test_data.replace(" ", "")).unwrap()
 }
 
-pub(crate) fn wrong_root_type() -> TtlvType {
-    TtlvType::Integer
+pub(crate) fn ttlv_bytes_with_wrong_root_type() -> Vec<u8> {
+    let test_data = format!("AAAAAA  {:02X}  00000020", wrong_root_type() as u8);
+    hex::decode(test_data.replace(" ", "")).unwrap()
 }
 
 pub(crate) fn ttlv_bytes_with_length_overflow() -> Vec<u8> {

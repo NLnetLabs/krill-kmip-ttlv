@@ -1,9 +1,11 @@
-use crate::error::{Error, ErrorLocation, MalformedTtlvError, SerdeError};
+// TOOD: do "use ... as fix" instead of "use ... ::*", then refer to xxx to make it clear what comes from the fixtures.
+
+use crate::error::{ErrorKind, MalformedTtlvError, SerdeError};
 use crate::tests::fixtures;
 use crate::tests::util::{make_limited_reader, make_reader, no_response_size_limit, reject_if_response_larger_than};
 use crate::types::{
-    SerializableTtlvType, TtlvBigInteger, TtlvBoolean, TtlvByteString, TtlvDateTime, TtlvEnumeration, TtlvInteger,
-    TtlvLongInteger, TtlvTag, TtlvTextString, TtlvType,
+    ByteOffset, SerializableTtlvType, TtlvBigInteger, TtlvBoolean, TtlvByteString, TtlvDateTime, TtlvEnumeration,
+    TtlvInteger, TtlvLongInteger, TtlvTag, TtlvTextString, TtlvType,
 };
 use crate::{from_reader, from_slice, Config};
 
@@ -87,7 +89,7 @@ fn test_io_error_insufficient_read_buffer_size() {
             &reject_if_response_larger_than(max_readable_bytes),
         );
 
-        assert_matches!(res, Err(Error::ResponseSizeExceedsLimit(len)) if len == full_input_byte_len);
+        assert_matches!(res.unwrap_err().kind(), ErrorKind::ResponseSizeExceedsLimit(len) if len == &full_input_byte_len);
     }
 }
 
@@ -96,12 +98,13 @@ fn test_io_error_unexpected_eof_with_reader() {
     use fixtures::simple::*;
 
     for max_readable_bytes in [0, 1, 2, 10] {
-        let res = from_reader::<RootType, _>(
+        let err = from_reader::<RootType, _>(
             make_limited_reader(ttlv_bytes(), max_readable_bytes),
             &Config::default(),
-        );
+        )
+        .unwrap_err();
 
-        assert_matches!(res, Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof);
+        assert_matches!(err.kind(), ErrorKind::IoError(io_error) if io_error.kind() == std::io::ErrorKind::UnexpectedEof);
     }
 }
 
@@ -113,88 +116,111 @@ fn test_io_error_unexpected_eof_with_slice() {
     let full_ttlv_byte_len = ttlv_bytes().len();
 
     for cutoff_bytes_at in 0..full_ttlv_byte_len-1 {
-        assert_matches!(from_slice::<RootType>(&ttlv_bytes()[0..=cutoff_bytes_at]), Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof);
+        let err = from_slice::<RootType>(&ttlv_bytes()[0..=cutoff_bytes_at]).unwrap_err();
+        assert_matches!(err.kind(), ErrorKind::IoError(io_error) if io_error.kind() == std::io::ErrorKind::UnexpectedEof);
     }
 
     assert!(from_slice::<RootType>(&ttlv_bytes()[0..full_ttlv_byte_len]).is_ok());
 }
 
 #[test]
-fn test_malformed_ttlv() {
+fn test_malformed_ttlv_invalid_root_type() {
     use fixtures::malformed_ttlv::*;
 
-    let root_tag = TtlvTag::from(*b"\xAA\xAA\xAA");
-    let inner_tag = TtlvTag::from(*b"\xBB\xBB\xBB");
+    let err = from_slice::<RootType>(&ttlv_bytes_with_invalid_root_type()).unwrap_err();
+    assert_matches!(err.kind(), ErrorKind::MalformedTtlv(MalformedTtlvError::InvalidType(ty)) if *ty == invalid_root_type());
+    assert_eq!(err.location().offset(), Some(ByteOffset(3)));
+    assert_eq!(err.location().parent_tags(), &[]);
+    assert_eq!(err.location().tag(), Some(root_tag()));
+    assert_eq!(err.location().r#type(), None);
+}
 
+#[test]
+fn test_malformed_ttlv_wrong_root_type() {
+    use fixtures::malformed_ttlv::*;
+
+    let err = from_slice::<RootType>(&ttlv_bytes_with_wrong_root_type()).unwrap_err();
+    assert_matches!(err.kind(), ErrorKind::MalformedTtlv(MalformedTtlvError::UnexpectedType{
+        expected: TtlvType::Structure,
+        actual
+    }) if *actual == wrong_root_type());
+    assert_eq!(err.location().offset(), Some(ByteOffset(4)));
+    assert_eq!(err.location().parent_tags(), &[]);
+    assert_eq!(err.location().tag(), Some(root_tag()));
+    assert_eq!(err.location().r#type(), Some(wrong_root_type()));
+}
+
+#[test]
+fn test_malformed_ttlv_length_overflow() {
+    use fixtures::malformed_ttlv::*;
+
+    let err = from_slice::<RootType>(&ttlv_bytes_with_length_overflow()).unwrap_err();
+    assert_matches!(err.kind(), ErrorKind::IoError(io_error) if io_error.kind() == std::io::ErrorKind::UnexpectedEof);
+    // TOOD: test the values of err.location()?
+}
+
+#[test]
+fn test_malformed_ttlv_wrong_value_length() {
+    use fixtures::malformed_ttlv::*;
+
+    let err = from_slice::<RootType>(&ttlv_bytes_with_wrong_value_length()).unwrap_err();
     assert_matches!(
-        from_slice::<RootType>(&ttlv_bytes_with_invalid_root_type()),
-        Err(Error::MalformedTtlv{
-            error: MalformedTtlvError::InvalidType(ty),
-            location: ErrorLocation{ offset: Some(4), parent_tags, tag: None, r#type: None }
+        err.kind(),
+        ErrorKind::MalformedTtlv(MalformedTtlvError::InvalidLength {
+            expected: 4,
+            actual: 5,
+            r#type: TtlvType::Integer
         })
-        if ty == invalid_root_type() && parent_tags.is_empty()
     );
+    assert_eq!(err.location().offset(), Some(ByteOffset(16)));
+    assert_eq!(err.location().parent_tags(), &[root_tag()]);
+    assert_eq!(err.location().tag(), Some(inner_tag()));
+    assert_eq!(err.location().r#type(), Some(TtlvType::Integer));
+}
 
+#[test]
+fn test_malformed_ttlv_invalid_boolean_value() {
+    use fixtures::malformed_ttlv::*;
+
+    let err = from_slice::<FlexibleRootType<bool>>(&ttlv_bytes_with_wrong_boolean_value()).unwrap_err();
     assert_matches!(
-        from_slice::<RootType>(&ttlv_bytes_with_wrong_root_type()),
-        Err(Error::MalformedTtlv{
-            error: MalformedTtlvError::UnexpectedType{
-                expected: TtlvType::Structure,
-                actual
-            },
-            location: ErrorLocation{ offset: Some(4), parent_tags, tag: None, r#type: None }
+        err.kind(),
+        ErrorKind::MalformedTtlv(MalformedTtlvError::InvalidValue {
+            r#type: TtlvType::Boolean
         })
-        if actual == wrong_root_type() && parent_tags.is_empty()
     );
+    assert_eq!(err.location().offset(), Some(ByteOffset(24)));
+    assert_eq!(err.location().parent_tags(), &[root_tag()]);
+    assert_eq!(err.location().tag(), Some(inner_tag()));
+    assert_eq!(err.location().r#type(), Some(TtlvType::Boolean));
+}
 
-    assert_matches!(
-        from_slice::<RootType>(&ttlv_bytes_with_length_overflow()),
-        Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof
-    );
+#[test]
+fn test_malformed_ttlv_invalid_utf8() {
+    use fixtures::malformed_ttlv::*;
 
-    assert_matches!(
-        from_slice::<RootType>(&ttlv_bytes_with_wrong_value_length()),
-        Err(Error::MalformedTtlv {
-            error: MalformedTtlvError::InvalidLength {
-                expected: 4,
-                actual: 5,
-                r#type: TtlvType::Integer
-            },
-            location: ErrorLocation { offset: Some(16), parent_tags, tag, r#type }
-        })
-        if parent_tags.get(0) == Some(&root_tag) && tag == Some(inner_tag) && r#type == Some(TtlvType::Integer)
-    );
-
-    assert_matches!(
-        from_slice::<FlexibleRootType<bool>>(&ttlv_bytes_with_wrong_boolean_value()),
-        Err(Error::MalformedTtlv {
-            error: MalformedTtlvError::InvalidValue,
-            location: ErrorLocation { offset: Some(24), parent_tags, tag, r#type }
-        })
-        if parent_tags.get(0) == Some(&root_tag) && tag == Some(inner_tag) && r#type == Some(TtlvType::Boolean)
-    );
-
-    // when testing UTF-8 let's first do a quick sanity check
+    // First do a quick sanity check that valid UTF-8 can be deserialized correctly.
     let r = from_slice::<FlexibleRootType<String>>(&ttlv_bytes_with_valid_utf8()).unwrap();
     assert_eq!(r.a, "κόσμε");
 
+    // Now verify that invalid UTF-8 bytes cause the expected error
+    let err = from_slice::<FlexibleRootType<String>>(&ttlv_bytes_with_invalid_utf8()).unwrap_err();
     assert_matches!(
-        from_slice::<FlexibleRootType<String>>(&ttlv_bytes_with_invalid_utf8()),
-        Err(Error::MalformedTtlv {
-            error: MalformedTtlvError::InvalidValue,
-            location: ErrorLocation { offset: Some(17), parent_tags, tag, r#type }
+        err.kind(),
+        ErrorKind::MalformedTtlv(MalformedTtlvError::InvalidValue {
+            r#type: TtlvType::TextString
         })
-        if parent_tags.get(0) == Some(&root_tag) && tag == Some(inner_tag) && r#type == Some(TtlvType::TextString)
     );
+    assert_eq!(err.location().offset(), Some(ByteOffset(17)));
+    assert_eq!(err.location().parent_tags(), &[root_tag()]);
+    assert_eq!(err.location().tag(), Some(inner_tag()));
+    assert_eq!(err.location().r#type(), Some(TtlvType::TextString));
 }
 
 #[test]
 fn test_incorrect_serde_configuration_mismatched_types() {
     use fixtures::malformed_ttlv::*;
     use serde_derive::Deserialize;
-
-    let root_tag = TtlvTag::from(*b"\xAA\xAA\xAA");
-    let inner_tag = TtlvTag::from(*b"\xBB\xBB\xBB");
 
     // $rust_type should be the Rust type that the $expected_ttlv_type should deserialize into, e.g. TTLV type
     // TtlvInteger deserializes into Rust type i32. $actual_ttlv_type is then an unexpected different TTLV type whose
@@ -205,16 +231,15 @@ fn test_incorrect_serde_configuration_mismatched_types() {
     // matches its expectation.
     macro_rules! test_rust_ttlv_type_mismatch {
         ($rust_type:ty, $expected_ttlv_type:path, $actual_tlv_value:expr) => {
-            assert_matches!(
-                from_slice::<$rust_type>(&ttlv_bytes_with_custom_tlv(&$actual_tlv_value)),
-                Err(Error::SerdeError {
-                    error: SerdeError::UnexpectedType {
-                        expected: $expected_ttlv_type,
-                        actual,
-                    },
-                    location: ErrorLocation { offset: Some(12), parent_tags, tag, r#type }
-                }) if actual == $actual_tlv_value.ttlv_type() && parent_tags.get(0) == Some(&root_tag) && tag == Some(inner_tag) && r#type == Some(actual)
-            );
+            let err = from_slice::<$rust_type>(&ttlv_bytes_with_custom_tlv(&$actual_tlv_value)).unwrap_err();
+            assert_matches!(err.kind(), ErrorKind::SerdeError(SerdeError::UnexpectedType {
+                expected: $expected_ttlv_type,
+                actual,
+            }) if *actual == $actual_tlv_value.ttlv_type());
+            assert_eq!(err.location().offset(), Some(ByteOffset(12)));
+            assert_eq!(err.location().parent_tags(), &[root_tag()]);
+            assert_eq!(err.location().tag(), Some(inner_tag()));
+            assert_eq!(err.location().r#type(), Some($actual_tlv_value.ttlv_type()));
         };
     }
 
@@ -271,12 +296,17 @@ fn test_incorrect_serde_configuration_mismatched_types() {
 
     // BAD: attempt to deserialize an enum variant that is not in the valid value range
     // Note: This test is brittle as it depends on the exact error message text produced by Serde Derive.
-    assert_matches!(
-        from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&some_out_of_range_enum)),
-        Err(Error::SerdeError {
-            error: SerdeError::Other(msg),
-            location: ErrorLocation { offset: Some(24), .. }
-        }) if msg == "unknown variant `0x00000002`, expected `0x00000001`");
+    let err =
+        from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&some_out_of_range_enum)).unwrap_err();
+    assert_matches!(err.kind(), ErrorKind::SerdeError(SerdeError::Other(msg)) if msg == "unknown variant `0x00000002`, expected `0x00000001`");
+    assert_eq!(err.location().offset(), Some(ByteOffset(24)));
+
+    // BAD: attempt to deserialize into an enum instead of a struct. Valid TTLV always starts with a Structure so
+    // cannot be deserialized into an enum. Serde Derive will invoke `fn deserialize_enum()` which will fail when the
+    // internal state machine of the deserializer detects that it expected to be informed that a tag is to be
+    // deserialized but is instead informed that a value is being deserialized.
+    let err = from_slice::<DummyEnum>(&ttlv_bytes_with_custom_tlv(&some_int)).unwrap_err();
+    dbg!(err);
 }
 
 #[test]
@@ -284,18 +314,14 @@ fn test_incorrect_serde_configuration_invalid_tags() {
     use fixtures::malformed_ttlv::*;
     use serde_derive::Deserialize;
 
-    let root_tag = TtlvTag::from(*b"\xAA\xAA\xAA");
-    let inner_tag = TtlvTag::from(*b"\xBB\xBB\xBB");
-
     macro_rules! test_invalid_tag {
         ($rust_type:ty, $actual_tlv_value:expr) => {
-            assert_matches!(
-                from_slice::<$rust_type>(&ttlv_bytes_with_custom_tlv(&$actual_tlv_value)),
-                Err(Error::SerdeError {
-                    error: SerdeError::InvalidTag(_),
-                    location: ErrorLocation { offset: Some(0), parent_tags, tag: None, r#type: None }
-                }) if parent_tags.is_empty()
-            );
+            let err = from_slice::<$rust_type>(&ttlv_bytes_with_custom_tlv(&$actual_tlv_value)).unwrap_err();
+            assert_matches!(err.kind(), ErrorKind::SerdeError(SerdeError::InvalidTag(_)));
+            assert_eq!(err.location().offset(), Some(ByteOffset(0)));
+            assert_eq!(err.location().parent_tags(), &[]);
+            assert_eq!(err.location().tag(), None);
+            assert_eq!(err.location().r#type(), None);
         };
     }
 
@@ -314,12 +340,13 @@ fn test_incorrect_serde_configuration_invalid_tags() {
         #[serde(rename = "if malformed variant matcher syntax")]
         SomeValue,
     }
-    assert_matches!(
-        from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&TtlvEnumeration(1))),
-        Err(Error::SerdeError {
-            error: SerdeError::InvalidVariantMacherSyntax(msg),
-            location: ErrorLocation { offset: Some(12), parent_tags, tag, r#type }
-        }) if msg == "if malformed variant matcher syntax" && parent_tags.get(0) == Some(&root_tag) && tag == Some(inner_tag) && r#type == Some(TtlvType::Enumeration));
+
+    let err = from_slice::<FlexibleRootType<DummyEnum>>(&ttlv_bytes_with_custom_tlv(&TtlvEnumeration(1))).unwrap_err();
+    assert_matches!(err.kind(), ErrorKind::SerdeError(SerdeError::InvalidVariantMacherSyntax(msg)) if msg == "if malformed variant matcher syntax");
+    assert_eq!(err.location().offset(), Some(ByteOffset(12)));
+    assert_eq!(err.location().parent_tags(), &[root_tag()]);
+    assert_eq!(err.location().tag(), Some(inner_tag()));
+    assert_eq!(err.location().r#type(), Some(TtlvType::Enumeration));
 }
 
 #[test]
@@ -328,7 +355,6 @@ fn test_mismatched_serde_configuration() {
     use serde_derive::Deserialize;
 
     let root_tag = TtlvTag::from(*b"\xAA\xAA\xAA");
-    let second_inner_tag = TtlvTag::from(*b"\xCC\xCC\xCC");
 
     // Attempt to deserialize a byte stream that contains a tag which we have not specified but we have configured
     // Serde derive to fail hard on the presence of unknown fields in the byte stream.
@@ -339,12 +365,12 @@ fn test_mismatched_serde_configuration() {
         #[serde(rename = "0xBBBBBB")]
         a: i32, // field b is missing
     }
-    assert_matches!(
-        from_slice::<MissingFieldRoot>(&ttlv_bytes()),
-        Err(Error::SerdeError {
-            error: SerdeError::Other(msg),
-            location: ErrorLocation { offset: Some(28), parent_tags, tag, r#type }
-        }) if msg == "unknown field `0xCCCCCC`, expected `0xBBBBBB`" && parent_tags.get(0) == Some(&root_tag) && tag == Some(second_inner_tag) && r#type == Some(TtlvType::Integer));
+    let err = from_slice::<MissingFieldRoot>(&ttlv_bytes()).unwrap_err();
+    assert_matches!(err.kind(), ErrorKind::SerdeError(SerdeError::Other(msg)) if msg == "unknown field `0xCCCCCC`, expected `0xBBBBBB`");
+    assert_eq!(err.location().offset(), Some(ByteOffset(28)));
+    assert_eq!(err.location().parent_tags(), &[root_tag]);
+    assert_eq!(err.location().tag(), Some(root_tag)); // TODO: Shouldn't really be root_tag here as then parent_tags is wrong
+    assert_eq!(err.location().r#type(), Some(TtlvType::Structure));
 
     // Do the same again but this time without `#[serde(deny_unknown_fields)]` and see that we successfully ignore the
     // extra field in the byte stream and complete the deserialization.
@@ -368,10 +394,10 @@ fn test_mismatched_serde_configuration() {
         #[serde(rename = "0xDDDDDD")]
         c: i32,
     }
-    assert_matches!(
-        from_slice::<ExtraFieldRoot>(&ttlv_bytes()),
-        Err(Error::SerdeError {
-            error: SerdeError::Other(msg),
-            location: ErrorLocation { offset: Some(40), parent_tags, tag: None, r#type: None }
-        }) if msg == "missing field `0xDDDDDD`" && parent_tags.get(0) == Some(&root_tag));
+    let err = from_slice::<ExtraFieldRoot>(&ttlv_bytes()).unwrap_err();
+    assert_matches!(err.kind(), ErrorKind::SerdeError(SerdeError::Other(msg)) if msg == "missing field `0xDDDDDD`");
+    assert_eq!(err.location().offset(), Some(ByteOffset(40)));
+    assert_eq!(err.location().parent_tags(), &[root_tag]);
+    assert_eq!(err.location().tag(), Some(root_tag)); // TODO: Shouldn't really be root_tag here as then parent_tags is wrong
+    assert_eq!(err.location().r#type(), Some(TtlvType::Structure));
 }

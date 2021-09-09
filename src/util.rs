@@ -3,10 +3,10 @@ use std::io::Cursor;
 use std::ops::Deref;
 
 use crate::de::TtlvDeserializer;
-use crate::error::Result;
+use crate::error::ErrorKind;
 use crate::types::{
     SerializableTtlvType, TtlvBigInteger, TtlvBoolean, TtlvByteString, TtlvDateTime, TtlvEnumeration, TtlvInteger,
-    TtlvLongInteger, TtlvTextString, TtlvType,
+    TtlvLongInteger, TtlvStateMachine, TtlvStateMachineMode, TtlvTextString, TtlvType,
 };
 
 /// Interpret the given byte slice as TTLV as much as possible and render it to a String in human readable form.
@@ -86,16 +86,17 @@ fn internal_to_string(bytes: &[u8], diagnostic_report: bool, strip_tag_prefix: S
         mut cursor: &mut Cursor<&[u8]>,
         diagnostic_report: bool,
         strip_tag_prefix: &str,
-    ) -> Result<(String, Option<u64>)> {
-        let tag = TtlvDeserializer::read_tag(&mut cursor)?;
-        let typ = TtlvDeserializer::read_type(&mut cursor)?;
+    ) -> std::result::Result<(String, Option<u64>), ErrorKind> {
+        let mut sm = TtlvStateMachine::new(TtlvStateMachineMode::Deserializing);
+        let tag = TtlvDeserializer::read_tag(&mut cursor, Some(&mut sm))?;
+        let typ = TtlvDeserializer::read_type(&mut cursor, Some(&mut sm))?;
         let mut len = Option::<u64>::None;
         const EMPTY_STRING: String = String::new();
 
         let fragment = if !diagnostic_report {
             #[rustfmt::skip]
             let data = match typ {
-                TtlvType::Structure   => { len = Some(TtlvDeserializer::read_length(cursor)? as u64); EMPTY_STRING }
+                TtlvType::Structure   => { len = Some(TtlvDeserializer::read_length(cursor, Some(&mut sm))? as u64); EMPTY_STRING }
                 TtlvType::Integer     => { format!(" {data:#08X} ({data})", data = TtlvInteger::read(cursor)?.deref()) }
                 TtlvType::LongInteger => { format!(" {data:#08X} ({data})", data = TtlvLongInteger::read(cursor)?.deref()) }
                 TtlvType::BigInteger  => { format!(" {data}", data = hex::encode_upper(&TtlvBigInteger::read(cursor)?.deref())) }
@@ -110,7 +111,7 @@ fn internal_to_string(bytes: &[u8], diagnostic_report: bool, strip_tag_prefix: S
         } else {
             #[rustfmt::skip]
             let data = match typ {
-                TtlvType::Structure   => { len = Some(TtlvDeserializer::read_length(cursor)? as u64); EMPTY_STRING }
+                TtlvType::Structure   => { len = Some(TtlvDeserializer::read_length(cursor, Some(&mut sm))? as u64); EMPTY_STRING }
                 TtlvType::Integer     => { TtlvInteger::read(cursor)?; "i".to_string() }
                 TtlvType::LongInteger => { TtlvLongInteger::read(cursor)?; "l".to_string() }
                 TtlvType::BigInteger  => { TtlvBigInteger::read(cursor)?; "I".to_string() }
@@ -132,12 +133,7 @@ fn internal_to_string(bytes: &[u8], diagnostic_report: bool, strip_tag_prefix: S
     loop {
         // Handle walking off the end of the current structure and the entire input
         loop {
-            let rel_pos = if let Some(end) = cur_struct_end {
-                cursor.position().cmp(&end)
-            } else {
-                Ordering::Less
-            };
-
+            let rel_pos = cur_struct_end.map_or(Ordering::Less, |end| cursor.position().cmp(&end));
             match rel_pos {
                 Ordering::Less => {
                     // Keep processing the current TTLV structure items
@@ -171,7 +167,11 @@ fn internal_to_string(bytes: &[u8], diagnostic_report: bool, strip_tag_prefix: S
         }
 
         // Deserialize the next TTLV in the input to a human readable string
-        match deserialize_ttlv_to_string(&mut cursor, diagnostic_report, &strip_tag_prefix) {
+        let pos = cursor.position();
+        let res = deserialize_ttlv_to_string(&mut cursor, diagnostic_report, &strip_tag_prefix)
+            .map_err(|err| pinpoint!(err, pos));
+
+        match res {
             Ok((ttlv_string, possible_new_struct_len)) => {
                 // Add (with correct indentation) the human readable result of deserialization to the "report" built up
                 // so far.

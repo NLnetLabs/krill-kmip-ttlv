@@ -202,6 +202,9 @@
 //! diagnosing where the problem in the TTLV byte stream is and why. Error reporting is a work in-progress and should
 //! get better as the crate matures.
 
+#[macro_use]
+mod macros;
+
 pub mod de;
 pub mod error;
 pub mod ser;

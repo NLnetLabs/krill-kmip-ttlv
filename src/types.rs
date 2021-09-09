@@ -1,12 +1,114 @@
 use std::{
     convert::TryFrom,
-    fmt::Debug,
+    fmt::{Debug, Display},
     io::{Read, Write},
     ops::Deref,
     str::FromStr,
 };
 
-use crate::error::{Error, ErrorLocation, MalformedTtlvError, Result, SerdeError};
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FieldType {
+    Tag,
+    Type,
+    Length,
+    Value,
+    LengthAndValue,        // used when deserializing
+    TypeAndLengthAndValue, // used when serializing
+}
+
+impl Default for FieldType {
+    fn default() -> Self {
+        Self::Tag
+    }
+}
+
+impl Display for FieldType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FieldType::Tag => f.write_str("Tag"),
+            FieldType::Type => f.write_str("Type"),
+            FieldType::Length => f.write_str("Length"),
+            FieldType::Value => f.write_str("Value"),
+            FieldType::LengthAndValue => f.write_str("LengthAndValue"),
+            FieldType::TypeAndLengthAndValue => f.write_str("TypeAndLengthAndValue"),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ByteOffset(pub u64);
+
+impl std::ops::Deref for ByteOffset {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<&u64> for ByteOffset {
+    fn from(v: &u64) -> Self {
+        ByteOffset(*v)
+    }
+}
+
+impl From<u64> for ByteOffset {
+    fn from(v: u64) -> Self {
+        ByteOffset(v)
+    }
+}
+
+impl TryFrom<usize> for ByteOffset {
+    type Error = ();
+
+    fn try_from(value: usize) -> std::result::Result<Self, Self::Error> {
+        if value < (u64::MAX as usize) {
+            Ok(ByteOffset(value as u64))
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl<T> From<&std::io::Cursor<T>> for ByteOffset {
+    fn from(cursor: &std::io::Cursor<T>) -> Self {
+        ByteOffset(cursor.position())
+    }
+}
+
+impl<T> From<std::io::Cursor<T>> for ByteOffset {
+    fn from(cursor: std::io::Cursor<T>) -> Self {
+        ByteOffset(cursor.position())
+    }
+}
+
+#[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
+pub enum Error {
+    IoError(std::io::Error),
+    InvalidTtlvTag(String),
+    UnexpectedTtlvField {
+        expected: FieldType,
+        actual: FieldType,
+    },
+    UnsupportedTtlvType(u8),
+    InvalidTtlvType(u8),
+    InvalidTtlvValueLength {
+        expected: u32,
+        actual: u32,
+        r#type: TtlvType,
+    },
+    InvalidTtlvValue(TtlvType),
+    InvalidStateMachineOperation,
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::IoError(e)
+    }
+}
+
+pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TtlvTag(u32);
@@ -26,18 +128,24 @@ impl Deref for TtlvTag {
 }
 
 impl FromStr for TtlvTag {
-    type Err = SerdeError;
+    type Err = Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let v =
-            u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|_| SerdeError::InvalidTag(s.to_string()))?;
+            u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|_| Error::InvalidTtlvTag(s.to_string()))?;
         Ok(TtlvTag(v))
     }
 }
 
 impl std::fmt::Display for TtlvTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "0x{:0X}", self.0)
+        write!(f, "0x{:06X}", self)
+    }
+}
+
+impl std::fmt::UpperHex for TtlvTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:X}", self.0)
     }
 }
 
@@ -92,7 +200,7 @@ impl std::fmt::Display for TtlvType {
 }
 
 impl TryFrom<u8> for TtlvType {
-    type Error = MalformedTtlvError;
+    type Error = Error;
 
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         match value {
@@ -106,8 +214,8 @@ impl TryFrom<u8> for TtlvType {
             0x08 => Ok(TtlvType::ByteString),
             0x09 => Ok(TtlvType::DateTime),
             // 0x0A => Ok(TtlvType::Interval),
-            0x0A => Err(MalformedTtlvError::UnsupportedType(0x0A)),
-            _ => Err(MalformedTtlvError::InvalidType(value)),
+            0x0A => Err(Error::UnsupportedTtlvType(0x0A)),
+            _ => Err(Error::InvalidTtlvType(value)),
         }
     }
 }
@@ -233,13 +341,10 @@ macro_rules! define_fixed_value_length_serializable_ttlv_type {
 
             fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
                 if value_len != Self::TTLV_FIXED_VALUE_LENGTH {
-                    Err(Error::MalformedTtlv {
-                        error: MalformedTtlvError::InvalidLength {
-                            expected: Self::TTLV_FIXED_VALUE_LENGTH,
-                            actual: value_len,
-                            r#type: Self::TTLV_TYPE,
-                        },
-                        location: ErrorLocation::default(),
+                    Err(Error::InvalidTtlvValueLength {
+                        expected: Self::TTLV_FIXED_VALUE_LENGTH,
+                        actual: value_len,
+                        r#type: Self::TTLV_TYPE,
                     })
                 } else {
                     let mut dst = [0u8; Self::TTLV_FIXED_VALUE_LENGTH as usize];
@@ -347,13 +452,10 @@ impl SerializableTtlvType for TtlvBoolean {
 
     fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
         if value_len != Self::TTLV_FIXED_VALUE_LENGTH {
-            Err(Error::MalformedTtlv {
-                error: MalformedTtlvError::InvalidLength {
-                    expected: Self::TTLV_FIXED_VALUE_LENGTH,
-                    actual: value_len,
-                    r#type: Self::TTLV_TYPE,
-                },
-                location: ErrorLocation::default(),
+            Err(Error::InvalidTtlvValueLength {
+                expected: Self::TTLV_FIXED_VALUE_LENGTH,
+                actual: value_len,
+                r#type: Self::TTLV_TYPE,
             })
         } else {
             let mut dst = [0u8; Self::TTLV_FIXED_VALUE_LENGTH as usize];
@@ -361,10 +463,7 @@ impl SerializableTtlvType for TtlvBoolean {
             match u64::from_be_bytes(dst) {
                 0 => Ok(TtlvBoolean(false)),
                 1 => Ok(TtlvBoolean(true)),
-                _ => Err(Error::MalformedTtlv {
-                    error: MalformedTtlvError::InvalidValue,
-                    location: ErrorLocation::default(),
-                }),
+                _ => Err(Error::InvalidTtlvValue(Self::TTLV_TYPE)),
             }
         }
     }
@@ -405,10 +504,7 @@ impl SerializableTtlvType for TtlvTextString {
 
         // Use the bytes as-is as the internal buffer for a String, verifying that the bytes are indeed valid
         // UTF-8
-        let new_str = String::from_utf8(dst).map_err(|_| Error::MalformedTtlv {
-            error: MalformedTtlvError::InvalidValue,
-            location: ErrorLocation::default(),
-        })?;
+        let new_str = String::from_utf8(dst).map_err(|_| Error::InvalidTtlvValue(Self::TTLV_TYPE))?;
 
         Ok(TtlvTextString(new_str))
     }
@@ -469,6 +565,89 @@ define_fixed_value_length_serializable_ttlv_type!(TtlvDateTime, TtlvType::DateTi
 //  They have a resolution of one second."
 #[allow(dead_code)]
 pub type TtlvInterval = TtlvEnumeration;
+
+// --- TTLV State Machine ---------------------------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TtlvStateMachineMode {
+    Deserializing,
+    Serializing,
+}
+
+pub struct TtlvStateMachine {
+    mode: TtlvStateMachineMode,
+    expected_next_field_type: FieldType,
+    ignore_next_tag: bool,
+}
+
+impl TtlvStateMachine {
+    pub fn new(mode: TtlvStateMachineMode) -> Self {
+        Self {
+            mode,
+            expected_next_field_type: FieldType::default(),
+            ignore_next_tag: false,
+        }
+    }
+
+    pub fn advance(&mut self, next_field_type: FieldType) -> std::result::Result<bool, Error> {
+        use TtlvStateMachineMode as Mode;
+
+        let next_expected_next_field_type = match (self.mode, self.expected_next_field_type, next_field_type) {
+            // First, the normal cases: expect a certain field type to be written next and that is what is indicated
+            (_, FieldType::Tag, FieldType::Tag) => FieldType::Type,
+            (_, FieldType::Type, FieldType::Type) => FieldType::Length,
+            (Mode::Serializing, FieldType::Type, FieldType::TypeAndLengthAndValue) => FieldType::Tag,
+            (_, FieldType::Length, FieldType::Length) => FieldType::Value,
+            (Mode::Deserializing, FieldType::Length, FieldType::LengthAndValue) => FieldType::Tag,
+            (_, FieldType::Value, FieldType::Value) => FieldType::Tag,
+
+            // In the leaf case a V always follows TTL, but higher in the TTLV structure hierarchy the first item in
+            // a structure can be another TTLV item (i.e. we see a tag being written instead of a value)
+            (_, FieldType::Value, FieldType::Tag) => FieldType::Type,
+
+            // Special case: we've been explicitly asked after writing a tag to ignore a subsequent attempt to write
+            // another tag. Normally attempting to write TT would be an error, but in this case the second T should be
+            // silently ignored. This supports use cases like the KMIP Attribute Value which is of the form XTLV where
+            // X is constant tag value and not the normal tag associated with the item being serialized.
+            (Mode::Serializing, FieldType::Type, FieldType::Tag) if self.ignore_next_tag => {
+                self.ignore_next_tag = false;
+                FieldType::Type
+            }
+
+            // Error, don't permit invalid things like TTVL etc.
+            (_, expected, actual) => {
+                return Err(Error::UnexpectedTtlvField { expected, actual });
+            }
+        };
+
+        // Advance the state machine if needed
+        if self.mode == Mode::Deserializing || next_expected_next_field_type != self.expected_next_field_type {
+            self.expected_next_field_type = next_expected_next_field_type;
+            Ok(true)
+        } else {
+            // It was permitted to stay in the current state. Signalling this allows calling code to know that it should
+            // NOT write out the next field, which normally would be an error and we would abort but in this case it is
+            // going to be okay as long as the caller respects this return value.
+            Ok(false)
+        }
+    }
+
+    pub fn ignore_next_tag(&mut self) -> std::result::Result<(), Error> {
+        if matches!(self.mode, TtlvStateMachineMode::Serializing) {
+            self.ignore_next_tag = true;
+            Ok(())
+        } else {
+            Err(Error::InvalidStateMachineOperation)
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.expected_next_field_type = FieldType::default();
+        self.ignore_next_tag = false;
+    }
+}
+
+// --- Tests ----------------------------------------------------------------------------------------------------------
 
 #[cfg(test)]
 mod test {
@@ -543,7 +722,7 @@ mod test {
         //
         //         Table 191: Allowed Item Type Values
 
-        assert_matches!(TtlvType::try_from(0x00), Err(MalformedTtlvError::InvalidType(0x00)));
+        assert_matches!(TtlvType::try_from(0x00), Err(Error::InvalidTtlvType(0x00)));
         assert_matches!(TtlvType::try_from(0x01), Ok(TtlvType::Structure));
         assert_matches!(TtlvType::try_from(0x02), Ok(TtlvType::Integer));
         assert_matches!(TtlvType::try_from(0x03), Ok(TtlvType::LongInteger));
@@ -555,11 +734,11 @@ mod test {
         assert_matches!(TtlvType::try_from(0x09), Ok(TtlvType::DateTime));
 
         // Interval is not yet implemented
-        assert_matches!(TtlvType::try_from(0x0A), Err(MalformedTtlvError::UnsupportedType(0x0A)));
+        assert_matches!(TtlvType::try_from(0x0A), Err(Error::UnsupportedTtlvType(0x0A)));
 
         // All other values are invalid
         for i in 0x0B..0xFF {
-            assert_matches!(TtlvType::try_from(i), Err(MalformedTtlvError::InvalidType(n)) if n == i);
+            assert_matches!(TtlvType::try_from(i), Err(Error::InvalidTtlvType(n)) if n == i);
         }
     }
 
