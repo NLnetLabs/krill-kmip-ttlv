@@ -4,7 +4,6 @@ use std::{
     cell::RefCell,
     cmp::Ordering,
     collections::HashMap,
-    convert::TryFrom,
     io::{Cursor, Read},
     ops::Deref,
     rc::Rc,
@@ -301,10 +300,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         if let Some(state) = state {
             state.advance(FieldType::Tag)?;
         }
-        let mut raw_item_tag = [0u8; 3];
-        src.read_exact(&mut raw_item_tag)?;
-        let item_tag = TtlvTag::from(raw_item_tag);
-        Ok(item_tag)
+        TtlvTag::read(&mut src)
     }
 
     /// Read a 1-byte TTLV type into an [ItemType]
@@ -331,10 +327,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         if let Some(state) = state {
             state.advance(FieldType::Type)?;
         }
-        let mut raw_item_type = [0u8; 1];
-        src.read_exact(&mut raw_item_type)?;
-        let item_type = TtlvType::try_from(raw_item_type[0])?;
-        Ok(item_type)
+        TtlvType::read(&mut src)
     }
 
     /// Read a 4-byte TTLV length into a u32.

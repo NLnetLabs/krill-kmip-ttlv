@@ -23,7 +23,7 @@ impl Error {
     pub(crate) fn new(kind: ErrorKind, location: ErrorLocation) -> Self {
         Self { kind, location }
     }
-    
+
     pub(crate) fn into_inner(self) -> (ErrorKind, ErrorLocation) {
         (self.kind, self.location)
     }
@@ -366,28 +366,18 @@ pub enum MalformedTtlvError {
     },
 
     /// The value in the TTLV value bytes is not valid for the type being read/written.
-    InvalidValue {
-        r#type: TtlvType,
-    },
+    InvalidValue { r#type: TtlvType },
 
     /// A TTLV value being read/written is too large for the TTLV Structure that contains it.
-    Overflow {
-        field_end: ByteOffset,
-    },
+    Overflow { field_end: ByteOffset },
 
     /// The TTLV field being read/written is out of sequence (e.g. TLVV, VLTL, etc.).
-    UnexpectedTtlvField {
-        expected: FieldType,
-        actual: FieldType,
-    },
+    UnexpectedTtlvField { expected: FieldType, actual: FieldType },
 
     /// The TTLV type being read/written is not correct at this location.
     ///
     /// For example, all TTLV sequences must start with a TTLV Structure.
-    UnexpectedType {
-        expected: TtlvType,
-        actual: TtlvType,
-    },
+    UnexpectedType { expected: TtlvType, actual: TtlvType },
 
     /// The TTLV type byte value being read/written is valid but not supported.
     UnsupportedType(u8),

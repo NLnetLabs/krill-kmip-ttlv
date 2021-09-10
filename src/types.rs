@@ -6,6 +6,8 @@ use std::{
     str::FromStr,
 };
 
+// --- FieldType ------------------------------------------------------------------------------------------------------
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum FieldType {
     Tag,
@@ -34,6 +36,8 @@ impl Display for FieldType {
         }
     }
 }
+
+// --- ByteOffset -----------------------------------------------------------------------------------------------------
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ByteOffset(pub u64);
@@ -110,8 +114,22 @@ impl From<std::io::Error> for Error {
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 
+// --- TtlvTag --------------------------------------------------------------------------------------------------------
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TtlvTag(u32);
+
+impl TtlvTag {
+    pub fn read<T: Read>(src: &mut T) -> Result<Self> {
+        let mut raw_item_tag = [0u8; 3];
+        src.read_exact(&mut raw_item_tag)?;
+        Ok(TtlvTag::from(raw_item_tag))
+    }
+
+    pub fn write<T: Write>(&self, dst: &mut T) -> Result<()> {
+        dst.write_all(&<[u8; 3]>::from(self)).map_err(Error::IoError)
+    }
+}
 
 impl Debug for TtlvTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -168,6 +186,8 @@ impl From<[u8; 3]> for TtlvTag {
     }
 }
 
+/// --- TtlvType ------------------------------------------------------------------------------------------------------
+
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TtlvType {
@@ -181,6 +201,18 @@ pub enum TtlvType {
     ByteString = 0x08,
     DateTime = 0x09,
     // Interval = 0x0A,
+}
+
+impl TtlvType {
+    pub fn read<T: Read>(src: &mut T) -> Result<Self> {
+        let mut raw_item_type = [0u8; 1];
+        src.read_exact(&mut raw_item_type)?;
+        TtlvType::try_from(raw_item_type[0])
+    }
+
+    pub fn write<T: Write>(&self, dst: &mut T) -> Result<()> {
+        dst.write_all(&[*self as u8]).map_err(Error::IoError)
+    }
 }
 
 impl std::fmt::Display for TtlvType {
@@ -225,6 +257,8 @@ impl From<TtlvType> for [u8; 1] {
         [item_type as u8]
     }
 }
+
+// --- SerializableTtlvType -------------------------------------------------------------------------------------------
 
 // KMIP v1.0 spec: 9.1.1.3 Item Length
 // ===================================
@@ -363,17 +397,23 @@ macro_rules! define_fixed_value_length_serializable_ttlv_type {
     };
 }
 
+// --- TtlvInteger ----------------------------------------------------------------------------------------------------
+
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Integer
 // ===========================================
 // "Integers are encoded as four-byte long (32 bit) binary signed numbers in 2's complement notation,
 //  transmitted big-endian."
 define_fixed_value_length_serializable_ttlv_type!(TtlvInteger, TtlvType::Integer, i32, 4);
 
+// --- TtlvLongInteger ------------------------------------------------------------------------------------------------
+
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Long Integer
 // ================================================
 // "Long Integers are encoded as eight-byte long (64 bit) binary signed numbers in 2's complement
 //  notation, transmitted big-endian."
 define_fixed_value_length_serializable_ttlv_type!(TtlvLongInteger, TtlvType::LongInteger, i64, 8);
+
+// --- TtlvBigInteger -------------------------------------------------------------------------------------------------
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Big Integer
 // ===============================================
@@ -421,12 +461,16 @@ impl SerializableTtlvType for TtlvBigInteger {
     }
 }
 
+// --- TtlvEnumeration ------------------------------------------------------------------------------------------------
+
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Enumeration
 // ===============================================
 // "Enumerations are encoded as four-byte long (32 bit) binary unsigned numbers transmitted big-
 //  endian. Extensions, which are permitted, but are not defined in this specification, contain the
 //  value 8 hex in the first nibble of the first byte."
 define_fixed_value_length_serializable_ttlv_type!(TtlvEnumeration, TtlvType::Enumeration, u32, 4);
+
+// --- TtlvBoolean ----------------------------------------------------------------------------------------------------
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Boolean
 // ===========================================
@@ -479,6 +523,8 @@ impl SerializableTtlvType for TtlvBoolean {
     }
 }
 
+// --- TtlvTextString -------------------------------------------------------------------------------------------------
+
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Text String
 // ===============================================
 // "Text Strings are sequences of bytes that encode character values according to the UTF-8
@@ -518,6 +564,8 @@ impl SerializableTtlvType for TtlvTextString {
     }
 }
 
+// --- TtlvByteString -------------------------------------------------------------------------------------------------
+
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Byte String
 // ===============================================
 // "Byte Strings are sequences of bytes containing individual unspecified eight-bit binary values, and are interpreted
@@ -552,12 +600,16 @@ impl SerializableTtlvType for TtlvByteString {
     }
 }
 
+// --- TtlvDateTime ---------------------------------------------------------------------------------------------------
+
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Date Time
 // =============================================
 // "Date-Time values are POSIX Time values encoded as Long Integers. POSIX Time, as described
 //  in IEEE Standard 1003.1 [IEEE1003-1], is the number of seconds since the Epoch (1970 Jan 1,
 //  00:00:00 UTC), not counting leap seconds."
 define_fixed_value_length_serializable_ttlv_type!(TtlvDateTime, TtlvType::DateTime, i64, 8);
+
+// --- TtlvInterval ---------------------------------------------------------------------------------------------------
 
 // KMIP v1.0 spec: 9.1.1.4 Item Value: Interval
 // ============================================
@@ -566,7 +618,7 @@ define_fixed_value_length_serializable_ttlv_type!(TtlvDateTime, TtlvType::DateTi
 #[allow(dead_code)]
 pub type TtlvInterval = TtlvEnumeration;
 
-// --- TTLV State Machine ---------------------------------------------------------------------------------------------
+// --- TtlvStateMachine ---------------------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TtlvStateMachineMode {

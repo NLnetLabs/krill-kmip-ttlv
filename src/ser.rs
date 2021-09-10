@@ -99,9 +99,7 @@ impl TtlvSerializer {
                 let loc = self.location();
                 self.state.ignore_next_tag().map_err(|err| pinpoint!(err, loc))?;
             }
-            self.dst
-                .write_all(&<[u8; 3]>::from(item_tag))
-                .map_err(|err| pinpoint!(err, self))?;
+            item_tag.write(&mut self.dst).map_err(|err| pinpoint!(err, self))?;
         }
         Ok(())
     }
@@ -110,9 +108,7 @@ impl TtlvSerializer {
     /// 1 byte.
     fn write_type(&mut self, item_type: TtlvType) -> Result<()> {
         if self.advance_state_machine(FieldType::Type)? {
-            self.dst
-                .write_all(&[item_type as u8])
-                .map_err(|err| pinpoint!(err, self))?;
+            item_type.write(&mut self.dst).map_err(|err| pinpoint!(err, self))?;
         }
         Ok(())
     }
