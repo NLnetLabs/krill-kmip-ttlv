@@ -258,6 +258,53 @@ impl From<TtlvType> for [u8; 1] {
     }
 }
 
+// --- TtlvLength -----------------------------------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TtlvLength(u32);
+
+impl TtlvLength {
+    pub fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub fn read<T: Read>(src: &mut T) -> Result<Self> {
+        let mut value_length = [0u8; 4];
+        src.read_exact(&mut value_length)?;
+        Ok(Self(u32::from_be_bytes(value_length)))
+    }
+
+    pub fn write<T: Write>(&self, dst: &mut T) -> Result<()> {
+        dst.write_all(&self.0.to_be_bytes()).map_err(Error::IoError)
+    }
+}
+
+impl Debug for TtlvLength {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("0x{:0X}", &self.0))
+    }
+}
+
+impl Deref for TtlvLength {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for TtlvLength {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0x{:08X}", self)
+    }
+}
+
+impl std::fmt::UpperHex for TtlvLength {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:X}", self.0)
+    }
+}
+
 // --- SerializableTtlvType -------------------------------------------------------------------------------------------
 
 // KMIP v1.0 spec: 9.1.1.3 Item Length

@@ -6,7 +6,7 @@ use serde::{
     ser::{self, Impossible, SerializeTupleStruct},
     Serialize,
 };
-use types::{TtlvBoolean, TtlvEnumeration, TtlvInteger, TtlvLongInteger, TtlvTextString};
+use types::{TtlvBoolean, TtlvEnumeration, TtlvInteger, TtlvLength, TtlvLongInteger, TtlvTextString};
 
 use crate::{
     error::{Error, ErrorLocation, MalformedTtlvError, Result, SerdeError},
@@ -118,8 +118,8 @@ impl TtlvSerializer {
     /// fn rewite_len() knows where to come back to.
     fn write_zero_len(&mut self) -> Result<()> {
         if self.advance_state_machine(FieldType::Length)? {
-            self.dst
-                .write_all(&[0u8, 0u8, 0u8, 0u8])
+            TtlvLength::new(0)
+                .write(&mut self.dst)
                 .map_err(|err| pinpoint!(err, self.location()))?;
             self.bookmarks.push(self.dst.len());
         }

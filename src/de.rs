@@ -19,7 +19,7 @@ use crate::{
     error::Error,
     error::{ErrorKind, ErrorLocation, MalformedTtlvError, Result, SerdeError},
     types::{
-        self, FieldType, SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger,
+        self, FieldType, SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLength,
         TtlvLongInteger, TtlvStateMachine, TtlvStateMachineMode, TtlvTextString,
     },
     types::{TtlvBigInteger, TtlvByteString, TtlvTag, TtlvType},
@@ -351,9 +351,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         if let Some(state) = state {
             state.advance(FieldType::Length)?;
         }
-        let mut value_length = [0u8; 4];
-        src.read_exact(&mut value_length)?;
-        Ok(u32::from_be_bytes(value_length))
+        TtlvLength::read(&mut src).map(|len| *len)
     }
 
     /// Read the next TTLV tag and type header and prepare for full deserialization.
