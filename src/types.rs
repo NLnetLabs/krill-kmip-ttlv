@@ -241,7 +241,7 @@ impl From<[u8; 3]> for TtlvTag {
 
 // --- TtlvType -------------------------------------------------------------------------------------------------------
 
-/// A type for (de)serializing a TTLV "Type".
+/// A type for (de)serializing a TTLV Type.
 ///
 /// According to the [KMIP specification 1.0 section 9.1.1.2 Item Type](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_toc8562):
 /// > _An Item Type is a byte containing a coded value that indicates the data type of the data object._
@@ -367,35 +367,39 @@ impl std::fmt::UpperHex for TtlvLength {
     }
 }
 
-// --- SerializableTtlvType -------------------------------------------------------------------------------------------
+// --- SerializableTtlvType ------------------------------------------------------------------------------------------------------
 
-// KMIP v1.0 spec: 9.1.1.3 Item Length
-// ===================================
-// An Item Length is a 32-bit binary integer, transmitted big-endian, containing the number of bytes in the
-// Item Value. The allowed values are:
-//
-//   Data Type    | Length
-//   -------------|----------------------
-//   Structure    | Varies, multiple of 8
-//   Integer      | 4
-//   Long Integer | 8
-//   Big Integer  | Varies, multiple of 8
-//   Enumeration  | 4
-//   Boolean      | 8
-//   Text String  | Varies
-//   Byte String  | Varies
-//   Date-Time    | 8
-//   Interval     | 4
-//
-//   Table 192: Allowed Item Length Values
-//
-// If the Item Type is Structure, then the Item Length is the total length of all of the sub-items contained in
-// the structure, including any padding. If the Item Type is Integer, Enumeration, Text String, Byte String, or
-// Interval, then the Item Length is the number of bytes excluding the padding bytes. Text Strings and Byte
-// Strings SHALL be padded with the minimal number of bytes following the Item Value to obtain a multiple
-// of eight bytes. Integers, Enumerations, and Intervals SHALL be padded with four bytes following the Item
-// Value.
-//
+/// A type that knows how to (de)serialize itself from/to TTLV byte format.
+///
+/// This type provides a common interface for (de)serializing Rust companion types to their TTLV byte form equivalents.
+///
+/// It is also provides default implementations that handle the TTLV padding byte rules.
+///
+/// According to the [KMIP specification 1.0 section 9.1.1.3 Item Length](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc236497868):
+/// > An Item Length is a 32-bit binary integer, transmitted big-endian, containing the number of bytes in the
+/// > Item Value. The allowed values are:
+/// >
+/// >   Data Type    | Length
+/// >   -------------|----------------------
+/// >   Structure    | Varies, multiple of 8
+/// >   Integer      | 4
+/// >   Long Integer | 8
+/// >   Big Integer  | Varies, multiple of 8
+/// >   Enumeration  | 4
+/// >   Boolean      | 8
+/// >   Text String  | Varies
+/// >   Byte String  | Varies
+/// >   Date-Time    | 8
+/// >   Interval     | 4
+/// >
+/// >   Table 192: Allowed Item Length Values
+/// >
+/// > If the Item Type is Structure, then the Item Length is the total length of all of the sub-items contained in
+/// > the structure, including any padding. If the Item Type is Integer, Enumeration, Text String, Byte String, or
+/// > Interval, then the Item Length is the number of bytes excluding the padding bytes. Text Strings and Byte
+/// > Strings SHALL be padded with the minimal number of bytes following the Item Value to obtain a multiple
+/// > of eight bytes. Integers, Enumerations, and Intervals SHALL be padded with four bytes following the Item
+/// > Value.
 pub trait SerializableTtlvType: Sized + Deref {
     const TTLV_TYPE: TtlvType;
 
