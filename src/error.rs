@@ -1,4 +1,4 @@
-//! When serializing or deserializing TTLV data goes wrong.
+//! Information about the (de)serialization failure and the location at which it failed.
 
 use std::{convert::TryFrom, fmt::Debug, fmt::Display};
 

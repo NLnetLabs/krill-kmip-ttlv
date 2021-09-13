@@ -1,3 +1,46 @@
+//! Low-level APIs for (de)serializing Rust primitives from/to TTLV bytes.
+//!
+//! Using the types in this module you can deserialize TTLV bytes to Rust equivalents of the TTLV header fields and
+//! primitive TTLV value types, and vice versa.
+//!
+//! For example:
+//!
+//! ```
+//! use kmip_ttlv::types::{TtlvTag, TtlvType, TtlvLength, TtlvInteger};
+//! use kmip_ttlv::types::SerializableTtlvType;
+//! # fn main() -> kmip_ttlv::types::Result<()> {
+//!
+//! // Hand craft some TTLV bytes to deserialize
+//! let mut ttlv_wire = Vec::new();
+//! ttlv_wire.extend(b"\x66\x00\x01");     // 3-byte tag
+//! ttlv_wire.extend(b"\x02");             // 1-byte type with value 2 (for Integer)
+//! ttlv_wire.extend(b"\x00\x00\x00\x04"); // 4-byte length with value 4 (for a 4-byte value length)
+//! ttlv_wire.extend(b"\x00\x00\x00\x03"); // 4-byte big-endian integer value 3
+//! ttlv_wire.extend(b"\x00\x00\x00\x00"); // 4-byte padding
+//!
+//! // Create a cursor for "Read"ing from the buffer
+//! let mut cursor = std::io::Cursor::new(&ttlv_wire);
+//!
+//! // Deserialize the TTLV bytes
+//! let tag = TtlvTag::read(&mut cursor)?;
+//! let typ = TtlvType::read(&mut cursor)?;
+//! let val = TtlvInteger::read(&mut cursor)?; // reads the length and padding bytes as well
+//!
+//! // Verify the result
+//! assert_eq!(*tag, 0x660001);
+//! assert_eq!(typ, TtlvType::Integer);
+//! assert_eq!(*val, 3);
+//!
+//! // Serialize the value back to TTLV bytes
+//! let mut buf = Vec::new();
+//! tag.write(&mut buf);
+//! val.write(&mut buf); // writes the type, length, value and padding bytes
+//!
+//! // Verify that the serialized bytes match our handcrafted bytes
+//! assert_eq!(&ttlv_wire, buf.as_slice());
+//! # Ok(())
+//! # }
+//! ```
 use std::{
     convert::TryFrom,
     fmt::{Debug, Display},
@@ -8,6 +51,9 @@ use std::{
 
 // --- FieldType ------------------------------------------------------------------------------------------------------
 
+/// The type of TTLV header or value field represented by some TTLV bytes.
+///
+/// This field is also used by the [TtlvStateMachine] to represent the next expected field type or types.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum FieldType {
     Tag,
@@ -39,6 +85,7 @@ impl Display for FieldType {
 
 // --- ByteOffset -----------------------------------------------------------------------------------------------------
 
+/// An offset into a collection of TTLV bytes.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ByteOffset(pub u64);
 
@@ -86,6 +133,7 @@ impl<T> From<std::io::Cursor<T>> for ByteOffset {
     }
 }
 
+/// Errors reported by the low-level (de)serialization API.
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
 pub enum Error {
@@ -112,10 +160,15 @@ impl From<std::io::Error> for Error {
     }
 }
 
-pub(crate) type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 // --- TtlvTag --------------------------------------------------------------------------------------------------------
 
+/// A type for (de)serializing a TTLV Tag.
+///
+/// According to the [KMIP specification 1.0 section 9.1.1.1 Item Tag](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_toc8560):
+/// > _An Item Tag is a three-byte binary unsigned integer, transmitted big endian, which contains a number that
+///   designates the specific Protocol Field or Object that the TTLV object represents._
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TtlvTag(u32);
 
@@ -186,8 +239,12 @@ impl From<[u8; 3]> for TtlvTag {
     }
 }
 
-/// --- TtlvType ------------------------------------------------------------------------------------------------------
+// --- TtlvType -------------------------------------------------------------------------------------------------------
 
+/// A type for (de)serializing a TTLV "Type".
+///
+/// According to the [KMIP specification 1.0 section 9.1.1.2 Item Type](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_toc8562):
+/// > _An Item Type is a byte containing a coded value that indicates the data type of the data object._
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TtlvType {
@@ -260,6 +317,11 @@ impl From<TtlvType> for [u8; 1] {
 
 // --- TtlvLength -----------------------------------------------------------------------------------------------------
 
+/// A type for (de)serializing a TTLV Length.
+///
+/// According to the [KMIP specification 1.0 section 9.1.1.3 Item Length](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc236497868):
+/// > _An Item Length is a 32-bit binary integer, transmitted big-endian, containing the number of bytes in the Item
+///   Value._
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TtlvLength(u32);
 
@@ -404,8 +466,9 @@ pub trait SerializableTtlvType: Sized + Deref {
 // i32 value and implements the SerializableTtlvType trait to define how to read/write from/to a sequence of 4
 // big-endian encoded bytes prefixed by a TTLV item type byte of value ItemType::Integer.
 macro_rules! define_fixed_value_length_serializable_ttlv_type {
-    ($NEW_TYPE_NAME:ident, $TTLV_ITEM_TYPE:expr, $RUST_TYPE:ty, $TTLV_VALUE_LEN:literal) => {
+    ($(#[$meta:meta])* $NEW_TYPE_NAME:ident, $TTLV_ITEM_TYPE:expr, $RUST_TYPE:ty, $TTLV_VALUE_LEN:literal) => {
         #[derive(Clone, Debug)]
+        $(#[$meta])*
         pub struct $NEW_TYPE_NAME(pub $RUST_TYPE);
         impl $NEW_TYPE_NAME {
             const TTLV_FIXED_VALUE_LENGTH: u32 = $TTLV_VALUE_LEN;
@@ -446,29 +509,42 @@ macro_rules! define_fixed_value_length_serializable_ttlv_type {
 
 // --- TtlvInteger ----------------------------------------------------------------------------------------------------
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value: Integer
-// ===========================================
-// "Integers are encoded as four-byte long (32 bit) binary signed numbers in 2's complement notation,
-//  transmitted big-endian."
-define_fixed_value_length_serializable_ttlv_type!(TtlvInteger, TtlvType::Integer, i32, 4);
+define_fixed_value_length_serializable_ttlv_type!(
+    /// A type for (de)serializing a TTLV Integer.
+    ///
+    /// According to the [KMIP specification 1.0 section 9.1.1.4 Item Value](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Ref262577330):
+    /// > _Integers are encoded as four-byte long (32 bit) binary signed numbers in 2's complement notation,
+    /// > transmitted big-endian._
+    TtlvInteger,
+    TtlvType::Integer,
+    i32,
+    4
+);
 
 // --- TtlvLongInteger ------------------------------------------------------------------------------------------------
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value: Long Integer
-// ================================================
-// "Long Integers are encoded as eight-byte long (64 bit) binary signed numbers in 2's complement
-//  notation, transmitted big-endian."
-define_fixed_value_length_serializable_ttlv_type!(TtlvLongInteger, TtlvType::LongInteger, i64, 8);
+define_fixed_value_length_serializable_ttlv_type!(
+    /// A type for (de)serializing a TTLV Long Integer.
+    ///
+    /// According to the [KMIP specification 1.0 section 9.1.1.4 Item Value](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Ref262577330):
+    /// > _Long Integers are encoded as eight-byte long (64 bit) binary signed numbers in 2's complement
+    /// > notation, transmitted big-endian._
+    TtlvLongInteger,
+    TtlvType::LongInteger,
+    i64,
+    8
+);
 
 // --- TtlvBigInteger -------------------------------------------------------------------------------------------------
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value: Big Integer
-// ===============================================
-// "Big Integers are encoded as a sequence of eight-bit bytes, in two's complement notation,
-//  transmitted big-endian. If the length of the sequence is not a multiple of eight bytes, then Big
-//  Integers SHALL be padded with the minimal number of leading sign-extended bytes to make the
-//  length a multiple of eight bytes. These padding bytes are part of the Item Value and SHALL be
-//  counted in the Item Length."
+/// A type for (de)serializing a TTLV Big Integer.
+///
+/// According to the [KMIP specification 1.0 section 9.1.1.4 Item Value](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Ref262577330):
+/// > _Big Integers are encoded as a sequence of eight-bit bytes, in two's complement notation,
+///   transmitted big-endian. If the length of the sequence is not a multiple of eight bytes, then Big
+///   Integers SHALL be padded with the minimal number of leading sign-extended bytes to make the
+///   length a multiple of eight bytes. These padding bytes are part of the Item Value and SHALL be
+///   counted in the Item Length._
 #[derive(Clone, Debug)]
 pub struct TtlvBigInteger(pub Vec<u8>);
 impl Deref for TtlvBigInteger {
@@ -510,22 +586,29 @@ impl SerializableTtlvType for TtlvBigInteger {
 
 // --- TtlvEnumeration ------------------------------------------------------------------------------------------------
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value: Enumeration
-// ===============================================
-// "Enumerations are encoded as four-byte long (32 bit) binary unsigned numbers transmitted big-
-//  endian. Extensions, which are permitted, but are not defined in this specification, contain the
-//  value 8 hex in the first nibble of the first byte."
-define_fixed_value_length_serializable_ttlv_type!(TtlvEnumeration, TtlvType::Enumeration, u32, 4);
+define_fixed_value_length_serializable_ttlv_type!(
+    /// A type for (de)serializing a TTLV Enumeration.
+    ///
+    /// According to the [KMIP specification 1.0 section 9.1.1.4 Item Value](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Ref262577330):
+    /// > _Enumerations are encoded as four-byte long (32 bit) binary unsigned numbers transmitted big-
+    ///   endian. Extensions, which are permitted, but are not defined in this specification, contain the
+    ///   value 8 hex in the first nibble of the first byte._
+    TtlvEnumeration,
+    TtlvType::Enumeration,
+    u32,
+    4
+);
 
 // --- TtlvBoolean ----------------------------------------------------------------------------------------------------
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value: Boolean
-// ===========================================
-// "Booleans are encoded as an eight-byte value that SHALL either contain the hex value
-//  0000000000000000, indicating the Boolean value False, or the hex value 0000000000000001,
-//  transmitted big-endian, indicating the Boolean value True."
-// Boolean cannot be implemented using the define_fixed_value_length_serializable_ttlv_type! macro because it has
-// special value verification rules.
+/// A type for (de)serializing a TTLV Boolean.
+///
+/// According to the [KMIP specification 1.0 section 9.1.1.4 Item Value](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Ref262577330):
+/// > _Booleans are encoded as an eight-byte value that SHALL either contain the hex value
+///   0000000000000000, indicating the Boolean value False, or the hex value 0000000000000001,
+///   transmitted big-endian, indicating the Boolean value True._
+/// Boolean cannot be implemented using the define_fixed_value_length_serializable_ttlv_type! macro because it has
+/// special value verification rules.
 #[derive(Clone, Debug)]
 pub struct TtlvBoolean(pub bool);
 impl TtlvBoolean {
@@ -572,12 +655,14 @@ impl SerializableTtlvType for TtlvBoolean {
 
 // --- TtlvTextString -------------------------------------------------------------------------------------------------
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value: Text String
-// ===============================================
-// "Text Strings are sequences of bytes that encode character values according to the UTF-8
-//  encoding standard. There SHALL NOT be null-termination at the end of such strings."
 // TextString cannot be implemented using the define_fixed_value_length_serializable_ttlv_type! macro because it has a
-// dynamic length.
+// dynamic length._
+
+/// A type for (de)serializing a TTLV Text String.
+///
+/// According to the [KMIP specification 1.0 section 9.1.1.4 Item Value](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Ref262577330):
+/// > _Text Strings are sequences of bytes that encode character values according to the UTF-8
+///   encoding standard. There SHALL NOT be null-termination at the end of such strings._
 #[derive(Clone, Debug)]
 pub struct TtlvTextString(pub String);
 impl Deref for TtlvTextString {
@@ -613,12 +698,14 @@ impl SerializableTtlvType for TtlvTextString {
 
 // --- TtlvByteString -------------------------------------------------------------------------------------------------
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value: Byte String
-// ===============================================
-// "Byte Strings are sequences of bytes containing individual unspecified eight-bit binary values, and are interpreted
-//  in the same sequence order."
 // ByteString cannot be implemented using the define_fixed_value_length_serializable_ttlv_type! macro because it has a
 // dynamic length.
+
+/// A type for (de)serializing a TTLV Byte String.
+///
+/// According to the [KMIP specification 1.0 section 9.1.1.4 Item Value](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Ref262577330):
+/// > _Byte Strings are sequences of bytes containing individual unspecified eight-bit binary values, and are interpreted
+///   in the same sequence order._
 #[derive(Clone, Debug)]
 pub struct TtlvByteString(pub Vec<u8>);
 impl Deref for TtlvByteString {
@@ -649,30 +736,39 @@ impl SerializableTtlvType for TtlvByteString {
 
 // --- TtlvDateTime ---------------------------------------------------------------------------------------------------
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value: Date Time
-// =============================================
-// "Date-Time values are POSIX Time values encoded as Long Integers. POSIX Time, as described
-//  in IEEE Standard 1003.1 [IEEE1003-1], is the number of seconds since the Epoch (1970 Jan 1,
-//  00:00:00 UTC), not counting leap seconds."
-define_fixed_value_length_serializable_ttlv_type!(TtlvDateTime, TtlvType::DateTime, i64, 8);
+define_fixed_value_length_serializable_ttlv_type!(
+    /// A type for (de)serializing a TTLV Date-Time.
+    ///
+    /// According to the [KMIP specification 1.0 section 9.1.1.4 Item Value](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Ref262577330):
+    /// > _Date-Time values are POSIX Time values encoded as Long Integers. POSIX Time, as described
+    ///   in IEEE Standard 1003.1 [IEEE1003-1], is the number of seconds since the Epoch (1970 Jan 1,
+    ///   00:00:00 UTC), not counting leap seconds._
+    TtlvDateTime,
+    TtlvType::DateTime,
+    i64,
+    8
+);
 
 // --- TtlvInterval ---------------------------------------------------------------------------------------------------
 
-// KMIP v1.0 spec: 9.1.1.4 Item Value: Interval
-// ============================================
-// "Intervals are encoded as four-byte long (32 bit) binary unsigned numbers, transmitted big-endian.
-//  They have a resolution of one second."
+/// A type for (de)serializing a TTLV Interval.
+///
+/// According to the [KMIP specification 1.0 section 9.1.1.4 Item Value](http://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Ref262577330):
+/// > _Intervals are encoded as four-byte long (32 bit) binary unsigned numbers, transmitted big-endian.
+///   They have a resolution of one second._
 #[allow(dead_code)]
 pub type TtlvInterval = TtlvEnumeration;
 
 // --- TtlvStateMachine ---------------------------------------------------------------------------------------------
 
+/// A flag used by [TtlvStateMachine] to know which rules to apply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TtlvStateMachineMode {
     Deserializing,
     Serializing,
 }
 
+/// A state machine for enforcing TTLV field order rules.
 pub struct TtlvStateMachine {
     mode: TtlvStateMachineMode,
     expected_next_field_type: FieldType,

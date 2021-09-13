@@ -1,4 +1,4 @@
-//! Serialize a Rust data structure into TTLV data.
+//! High-level Serde based serialization of Rust data types to TTLV bytes.
 
 use std::{io::Write, str::FromStr};
 

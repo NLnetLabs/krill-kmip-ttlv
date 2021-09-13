@@ -1,4 +1,4 @@
-//! Deserialize TTLV bytes into Rust data types.
+//! High-level Serde based deserialization of TTLV bytes to Rust data types.
 
 use std::{
     cell::RefCell,

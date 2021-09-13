@@ -1,3 +1,4 @@
+//! Facilities for pretty printing TTLV bytes to text format.
 use std::cmp::Ordering;
 use std::io::Cursor;
 use std::ops::Deref;
