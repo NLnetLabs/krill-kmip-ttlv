@@ -212,9 +212,9 @@ pub mod de;
 pub mod error;
 #[cfg(feature = "high-level")]
 pub mod ser;
-mod types;
+pub mod types;
 #[cfg(feature = "high-level")]
-mod util;
+pub mod util;
 
 #[cfg(feature = "high-level")]
 pub use de::{from_reader, from_slice, Config};
