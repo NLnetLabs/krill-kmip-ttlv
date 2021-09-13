@@ -12,9 +12,13 @@ exclude = ["/.github"]
 readme = "README.md"
 build = "build.rs"
 
+[features]
+default = ["high-level"]
+high-level = ["hex", "serde"]
+
 [dependencies]
-hex = "0.4.3"
-serde = "1.0.126"
+hex = {version = "0.4.3", optional = true }
+serde = { version = "1.0.126", optional = true }
 
 [build-dependencies]
 rustc_version   = "0.2.3"

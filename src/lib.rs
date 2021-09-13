@@ -71,7 +71,7 @@
 //!
 //! [Serde Derive attribute]: https://serde.rs/attributes.html
 //!
-//! ```
+//! ```ignore 
 //! use serde_derive::Serialize;
 //!
 //! #[derive(Serialize)]
@@ -202,17 +202,25 @@
 //! diagnosing where the problem in the TTLV byte stream is and why. Error reporting is a work in-progress and should
 //! get better as the crate matures.
 
+#[cfg(feature = "high-level")]
 #[macro_use]
 mod macros;
 
+#[cfg(feature = "high-level")]
 pub mod de;
+#[cfg(feature = "high-level")]
 pub mod error;
+#[cfg(feature = "high-level")]
 pub mod ser;
 mod types;
+#[cfg(feature = "high-level")]
 mod util;
 
+#[cfg(feature = "high-level")]
 pub use de::{from_reader, from_slice, Config};
+#[cfg(feature = "high-level")]
 pub use ser::{to_vec, to_writer};
+#[cfg(feature = "high-level")]
 pub use util::{to_diag_string, to_string};
 
 #[cfg(test)]

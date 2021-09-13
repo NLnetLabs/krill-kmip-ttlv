@@ -1,3 +1,9 @@
+#[cfg(not(feature = "high-level"))]
+fn main() {
+    unreachable!("This example requires the 'high-level' feature.");
+}
+
+#[cfg(feature = "high-level")]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
