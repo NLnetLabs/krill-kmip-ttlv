@@ -229,7 +229,7 @@ pub use ser::{to_vec, to_writer};
 
 #[cfg(feature = "high-level")]
 #[doc(inline)]
-pub use util::{to_diag_string, to_string};
+pub use util::PrettyPrinter;
 
 #[cfg(test)]
 mod tests;

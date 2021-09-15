@@ -5,3 +5,5 @@ mod fixtures;
 #[cfg(feature = "high-level")]
 mod helpers;
 mod types;
+#[cfg(feature = "high-level")]
+mod util;

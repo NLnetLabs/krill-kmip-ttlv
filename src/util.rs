@@ -10,6 +10,20 @@ use crate::types::{
     TtlvLongInteger, TtlvStateMachine, TtlvStateMachineMode, TtlvTextString, TtlvType,
 };
 
+#[derive(Clone, Debug, Default)]
+pub struct PrettyPrinter {
+    tag_prefix: String,
+
+impl PrettyPrinter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the pretty printer's tag prefix.
+    pub fn with_tag_prefix(&mut self, tag_prefix: String) -> &Self {
+        self.tag_prefix = tag_prefix;
+        self
+    }
 /// Interpret the given byte slice as TTLV as much as possible and render it to a String in human readable form.
 ///
 /// An example string for a successful KMIP 1.0 create symmetric key response could look like this:
@@ -31,8 +45,8 @@ use crate::types::{
 /// ```
 ///
 /// For a more compact form that omits sensitive details see [to_diag_string()].
-pub fn to_string(bytes: &[u8]) -> String {
-    internal_to_string(bytes, false, String::new())
+    pub fn to_string(&self, bytes: &[u8]) -> String {
+        self.internal_to_string(bytes, false)
 }
 
 /// Interpret the given byte slice as TTLV as much as possible and render it to a String in compact diagnostic form.
@@ -62,11 +76,11 @@ pub fn to_string(bytes: &[u8]) -> String {
 ///
 /// Such diagnostic strings could be useful to generate for all TTLV requests and responses in order to store the last
 /// N in memory and be able to dump them out if a TTLV related problem occurs, and/or to log at debug or trace level.
-pub fn to_diag_string(bytes: &[u8], strip_tag_prefix: String) -> String {
-    internal_to_string(bytes, true, strip_tag_prefix)
+    pub fn to_diag_string(&self, bytes: &[u8]) -> String {
+        self.internal_to_string(bytes, true)
 }
 
-fn internal_to_string(bytes: &[u8], diagnostic_report: bool, strip_tag_prefix: String) -> String {
+    fn internal_to_string(&self, bytes: &[u8], diagnostic_report: bool) -> String {
     let mut indent: usize = 0;
     let mut report = String::new();
     let mut struct_ends = Vec::<u64>::new();

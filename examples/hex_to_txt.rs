@@ -21,5 +21,5 @@ fn main() {
     let ttlv_bin = hex::decode(ttlv_hex_str)
         .expect("Failed to parse the input file. Make sure it is in hex format, e.g. 42007A..");
 
-    println!("{}", kmip_ttlv::to_string(&ttlv_bin));
+    println!("{}", kmip_ttlv::PrettyPrinter::new().to_string(&ttlv_bin));
 }
