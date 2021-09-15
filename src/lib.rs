@@ -14,7 +14,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! kmip-ttlv = "0.2.0"
+//! kmip-ttlv = "0.3.0"
 //! serde = "1.0.126"
 //! serde_derive = "1.0.126"
 //! ```
@@ -186,7 +186,19 @@
 //! For detailed examples of how to annotate your data types with Serde derive attributes for use with this crate look
 //! at the [tests in the source repository for this crate](https://github.com/NLnetLabs/kmip-ttlv/tree/main/src/tests/).
 //!
-//! For much richer examples see the code and tests in the source repository for the [kmip-protocol] crate.
+//! For much richer examples see the code and tests in the source repository for the
+//! [kmip-protocol](https://crates.io/crates/kmip-protocol/) crate.
+//!
+//! The `examples/` folder contains a simple `hex_to_txt` tool which can pretty print a human readable tree structure
+//! form of the given hexadecimal encoded TTLV bytes. You can run the example with the command:
+//!
+//! ```bash
+//! cargo run --example hex_to_txt </path/to/hex_string_input_file>
+//! ```
+//!
+//! The tool will ignore any line breaks, spaces, double quotes and commas that are present in the file. Try it out by
+//! copying the quoted hex input and output strings in the [tests for this crate](https://github.com/NLnetLabs/kmip-ttlv/tree/main/src/tests/)
+//! to a file and passing that file to the `hex_to_txt` tool.
 //!
 //! # Error handling
 //!
@@ -204,6 +216,10 @@
 //!
 //! If serialization or deserialization fails this crate tries to return sufficient contextual information to aid
 //! diagnosing where the problem in the data is and why.
+//!
+//! For logging or storing of requests and responses for later diagnostic purposes use the
+//! [PrettyPrinter::to_diag_string()] function to render TTLV bytes in a compact textual representation with most
+//! values redacted (only enumeration values are included in the generated string).
 
 #[cfg(feature = "high-level")]
 #[macro_use]

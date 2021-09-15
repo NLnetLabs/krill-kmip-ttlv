@@ -27,6 +27,9 @@ use crate::{
 
 // --- Public interface ------------------------------------------------------------------------------------------------
 
+/// Configuration settings used by the deserializer.
+///
+/// May in future also be used by the serializer.
 #[derive(Debug, Default)]
 pub struct Config {
     max_bytes: Option<u32>,
@@ -95,6 +98,7 @@ impl Config {
     }
 }
 
+/// Read and deserialize bytes from the given slice.
 pub fn from_slice<'de, T>(bytes: &'de [u8]) -> Result<T>
 where
     T: Deserialize<'de>,

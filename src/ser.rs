@@ -18,12 +18,14 @@ use crate::{
 
 // --- Public interface ------------------------------------------------------------------------------------------------
 
+/// Serialize and write bytes into a new Vector.
 pub fn to_vec<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     let mut ser = TtlvSerializer::new();
     value.serialize(&mut ser)?;
     ser.into_vec()
 }
 
+/// Serialize and write bytes to a Writer.
 pub fn to_writer<T, W>(value: &T, mut writer: W) -> Result<()>
 where
     T: Serialize,

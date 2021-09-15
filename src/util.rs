@@ -1,4 +1,4 @@
-//! Facilities for pretty printing TTLV bytes to text format.
+//! Useful functionality separate but related to (de)serialization.
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -12,6 +12,7 @@ use crate::types::{
     TtlvLongInteger, TtlvStateMachine, TtlvStateMachineMode, TtlvTag, TtlvTextString, TtlvType,
 };
 
+/// Facilities for pretty printing TTLV bytes to text format.
 #[derive(Clone, Debug, Default)]
 pub struct PrettyPrinter {
     tag_prefix: String,
@@ -24,12 +25,18 @@ impl PrettyPrinter {
     }
 
     /// Set the pretty printer's tag prefix.
+    ///
+    /// This can be used both to strip common tag prefixes from the output produced by [PrettyPrinter::to_diag_string()]
+    /// to make it shorter, and to restore them when using [PrettyPrinter::from_diag_string()].
     pub fn with_tag_prefix(&mut self, tag_prefix: String) -> &Self {
         self.tag_prefix = tag_prefix;
         self
     }
 
     /// Set the pretty printer's tag map.
+    ///
+    /// The tag map is used to render a meaningful name for hexadecimal tag identifiers in pretty printed output by
+    /// looking up the human friendly name associated with the tag in the given map.
     pub fn with_tag_map(&mut self, tag_map: HashMap<TtlvTag, &'static str>) -> &Self {
         self.tag_map = tag_map;
         self
@@ -55,7 +62,10 @@ impl PrettyPrinter {
     ///       Tag: 0x420094, Type: TextString (0x07), Data: fc8833de-70d2-4ece-b063-fede3a3c59fe
     /// ```
     ///
-    /// For a more compact form that omits sensitive details see [to_diag_string()].
+    /// If configured using [PrettyPrinter::with_tag_map()] the hexadecimal tag identifiers will be prefixed by their
+    /// mapped human readable name.
+    ///
+    /// For a more compact form that omits sensitive details see [PrettyPrinter::to_diag_string()].
     pub fn to_string(&self, bytes: &[u8]) -> String {
         self.internal_to_string(bytes, false)
     }
@@ -67,9 +77,9 @@ impl PrettyPrinter {
     /// users to interpret but rather to be included in problem reports to the vendor of the application using this
     /// library.
     ///
-    /// The `strip_tag_prefix` string argument can be used to further compact the created diagnostic string by removing the
-    /// specified prefix from the hex representation of all TTLV tags. For example if used with the KMIP protocol one could
-    /// strip "4200" from all tags as all official KMIP tags begin with 4200.
+    /// The [PrettyPrinter::with_tag_prefix()] configuration setting can be used to further compact the created
+    /// diagnostic string by removing the specified prefix from the hex representation of all TTLV tags. For example if
+    /// used with the KMIP protocol one could strip "4200" from all tags as all official KMIP 1.0 tags begin with 4200.
     ///
     /// An example diagnostic string for a successful KMIP 1.0 create symmetric key response could look like this:
     ///
@@ -77,7 +87,7 @@ impl PrettyPrinter {
     /// 7B[7A[69[6Ai6Bi]92d0Di]0F[5Ce17Fe07C[57e294t]]]
     /// ```
     ///
-    /// This is a compact and desensitized form of the same response shown in the [to_string()] example. The `[` and
+    /// This is a compact and desensitized form of the same response shown in the [PrettyPrinter::to_string()] example. The `[` and
     /// `]` characters denote the start and end points of KMIP structures. The 4200 tag prefixes have been stripped in this
     /// example so each tag is two hex characters, e.g. `7B` is short for `0x42007B` which is the KMIP Response Message
     /// tag, and `7A` is the Response Header tag (0x42007A). Actual values are omitted except for their types (i - Integer,
@@ -264,6 +274,41 @@ impl PrettyPrinter {
         }
     }
 
+    /// Render the given diag string in human readable form.
+    ///
+    /// This function can be used to render a String previously created by [PrettyPrinter::to_diag_string()] to a
+    /// format similar to that produced by [PrettyPrinter::to_string()].
+    ///
+    /// For example for the following input string:
+    ///
+    /// ```text
+    /// 78[77[69[6Ai6Bi]0C[23[24e1:25[99tA1t]]]0Di]0F[5Ce12:79[94t]]]
+    /// ```
+    ///
+    /// The pretty output produced by this function when using a suitable `tag_map` would look like this:
+    ///
+    /// ```text
+    /// Tag: Request Message (0x420078), Type: Structure (0x01), Data: 
+    ///   Tag: Request Header (0x420077), Type: Structure (0x01), Data: 
+    ///     Tag: Protocol Version (0x420069), Type: Structure (0x01), Data: 
+    ///       Tag: Protocol Version Major (0x42006A), Type: Integer (0x02), Data: <redacted>
+    ///       Tag: Protocol Version Minor (0x42006B), Type: Integer (0x02), Data: <redacted>
+    ///     Tag: Authentication (0x42000C), Type: Structure (0x01), Data: 
+    ///       Tag: Credential (0x420023), Type: Structure (0x01), Data: 
+    ///         Tag: Credential Type (0x420024), Type: Enumeration (0x05), Data: 1
+    ///         Tag: Credential Value (0x420025), Type: Structure (0x01), Data: 
+    ///           Tag: Username (0x420099), Type: TextString (0x07), Data: <redacted>
+    ///           Tag: Password (0x4200A1), Type: TextString (0x07), Data: <redacted>
+    ///     Tag: Batch Count (0x42000D), Type: Integer (0x02), Data: <redacted>
+    ///   Tag: Batch Item (0x42000F), Type: Structure (0x01), Data: 
+    ///     Tag: Operation (0x42005C), Type: Enumeration (0x05), Data: 12
+    ///     Tag: Request Payload (0x420079), Type: Structure (0x01), Data: 
+    ///       Tag: Unique Identifier (0x420094), Type: TextString (0x07), Data: <redacted>
+    /// ```
+    ///
+    /// Notice how the sensitive details are shown as `<redacted>` because [PrettyPrinter::to_diag_string()] omitted
+    /// them from the string it produced that we used as input. This example also demonstrates use of a `tag_map` to
+    /// give meaning to the hexadecimal tag identifiers.
     pub fn from_diag_string(&self, diag_str: &str) -> String {
         fn read_tag<'a>(s: &'a str, tag_prefix: &str) -> Option<(Option<TtlvTag>, Option<&'a str>)> {
             // if the next character is ']' it signals the end of a TTLV Structure
