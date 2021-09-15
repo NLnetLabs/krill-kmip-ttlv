@@ -2,7 +2,7 @@
 
 use crate::error::{ErrorKind, MalformedTtlvError, SerdeError};
 use crate::tests::fixtures;
-use crate::tests::util::{make_limited_reader, make_reader, no_response_size_limit, reject_if_response_larger_than};
+use crate::tests::helpers::{make_limited_reader, make_reader, no_response_size_limit, reject_if_response_larger_than};
 use crate::types::{
     ByteOffset, SerializableTtlvType, TtlvBigInteger, TtlvBoolean, TtlvByteString, TtlvDateTime, TtlvEnumeration,
     TtlvInteger, TtlvLongInteger, TtlvTag, TtlvTextString, TtlvType,
