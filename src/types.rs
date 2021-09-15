@@ -239,6 +239,12 @@ impl From<[u8; 3]> for TtlvTag {
     }
 }
 
+impl From<&[u8; 3]> for TtlvTag {
+    fn from(b: &[u8; 3]) -> Self {
+        TtlvTag(u32::from_be_bytes([0x00u8, b[0], b[1], b[2]]))
+    }
+}
+
 // --- TtlvType -------------------------------------------------------------------------------------------------------
 
 /// A type for (de)serializing a TTLV Type.
