@@ -130,7 +130,7 @@ impl PrettyPrinter {
                 TtlvType::Integer     => { TtlvInteger::read(cursor)?; "i".to_string() }
                 TtlvType::LongInteger => { TtlvLongInteger::read(cursor)?; "l".to_string() }
                 TtlvType::BigInteger  => { TtlvBigInteger::read(cursor)?; "I".to_string() }
-                TtlvType::Enumeration => { format!("e{data:X}", data = TtlvEnumeration::read(cursor)?.deref()) }
+                TtlvType::Enumeration => { format!("e{data:X}:", data = TtlvEnumeration::read(cursor)?.deref()) }
                 TtlvType::Boolean     => { TtlvBoolean::read(cursor)?; "b".to_string() }
                 TtlvType::TextString  => { TtlvTextString::read(cursor)?; "t".to_string() }
                 TtlvType::ByteString  => { TtlvByteString::read(cursor)?; "o".to_string() }
