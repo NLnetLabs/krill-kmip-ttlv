@@ -33,6 +33,19 @@ pub struct Config {
     read_buf: Option<RefCell<Vec<u8>>>,
 }
 
+impl Clone for Config {
+    fn clone(&self) -> Self {
+        Self {
+            max_bytes: self.max_bytes,
+            read_buf: if self.has_buf() {
+                Some(RefCell::new(Vec::new()))
+            } else {
+                None
+            },
+        }
+    }
+}
+
 impl Config {
     pub fn new() -> Self {
         Self::default()
