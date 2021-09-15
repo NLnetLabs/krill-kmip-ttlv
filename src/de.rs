@@ -1,7 +1,7 @@
 //! High-level Serde based deserialization of TTLV bytes to Rust data types.
 
 use std::{
-    cell::RefCell,
+    cell::{RefCell, RefMut},
     cmp::Ordering,
     collections::HashMap,
     io::{Cursor, Read},
@@ -27,28 +27,57 @@ use crate::{
 
 // --- Public interface ------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Config {
     max_bytes: Option<u32>,
+    read_buf: Option<RefCell<Vec<u8>>>,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self { max_bytes: None }
+impl Config {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
 impl Config {
-    fn max_bytes(&self) -> Option<u32> {
+    /// What, if any, is the configured maximum permitted response size?
+    pub fn max_bytes(&self) -> Option<u32> {
         self.max_bytes
+    }
+
+    /// Has a persistent read buffer been configured for reading response bytes into?
+    pub fn has_buf(&self) -> bool {
+        self.read_buf.is_some()
+    }
+
+    /// Get mutable access to optional persistent response bytes buffer
+    pub fn read_buf(&self) -> Option<RefMut<Vec<u8>>> {
+        self.read_buf.as_ref().map(|buf| buf.borrow_mut())
     }
 }
 
 // Builder style interface
 impl Config {
+    /// Specify a maximum number of response bytes to read.
+    ///
+    /// Use this if you are reading data from an untrusted source. If that source then sends a very large response we
+    /// will reject it rather than attempt to read it all and thus avoid possibly running out of memory.
     pub fn with_max_bytes(self, max_bytes: u32) -> Self {
         Self {
             max_bytes: Some(max_bytes),
+            ..self
+        }
+    }
+
+    /// Save the read response bytes into a buffer for use later.
+    ///
+    /// Allocate a persistent buffer that can be used by a reader to store the read response bytes into. This could be
+    /// to avoid allocating a buffer for every response read, or to permit logging or storing or pretty printing of the
+    /// response bytes once they have been read from the source.
+    pub fn with_read_buf(self) -> Self {
+        Self {
+            read_buf: Some(RefCell::new(Vec::new())),
+            ..self
         }
     }
 }
@@ -86,6 +115,31 @@ where
         ErrorLocation::from(buf_len)
     }
 
+    let max_bytes = config.max_bytes();
+
+    // Interior mutability access dance
+    // --------------------------------
+    // The Config object can optionally have its own buffer which we will write the read bytes into. This then allows
+    // the caller to log or save or pretty print those bytes or avoid allocating a new buffer on every read, or
+    // whatever the caller wants to do with them.
+    //
+    // We could take a buffer as an argument but that would complicate the default use case. We could also take a
+    // mutable reference to the Config object but then we'd appear to have the ability to alter the configuration
+    // settings which is not right. So instead we use the interior mutability pattern to get a mutable reference to
+    // just the buffer owned by the Config object, not the entire Config object. However, to write to the Config object
+    // buffer if available or otherwise to a local buffer requires a bit of a dance to get satisfy the Rust compiler
+    // borrow checker.
+    let mut buf_bytes;
+    let mut config_buf = config.read_buf();
+    let mut buf: &mut Vec<u8> = if let Some(ref mut buf) = config_buf {
+        // Use the buffer provided by the Config object.
+        buf
+    } else {
+        // Create and use our own temporary buffer.
+        buf_bytes = Vec::new();
+        &mut buf_bytes
+    };
+
     // Greedy closure capturing:
     // -------------------------
     // Note: In the read_xxx() calls below we take the cursor.position() _before_ the read because otherwise, in Rust
@@ -94,7 +148,7 @@ where
     // See: https://doc.rust-lang.org/nightly/edition-guide/rust-2021/disjoint-capture-in-closures.html
 
     // Read the bytes of the first TTL (3 byte tag, 1 byte type, 4 byte len)
-    let mut buf = vec![0; 8];
+    buf.resize(8, 0);
     let response_size;
     let tag;
     let r#type;
@@ -127,7 +181,7 @@ where
         // trusted.
         let buf_len = cursor.position();
         response_size = buf_len + (additional_len as u64);
-        if let Some(max_bytes) = config.max_bytes() {
+        if let Some(max_bytes) = max_bytes {
             if response_size > (max_bytes as u64) {
                 let error = ErrorKind::ResponseSizeExceedsLimit(response_size as usize);
                 let location = ErrorLocation::from(cursor).with_tag(tag).with_type(r#type);
@@ -143,7 +197,7 @@ where
         .read_exact(&mut buf[8..])
         .map_err(|err| Error::pinpoint(err, ErrorLocation::from(buf.len()).with_tag(tag).with_type(r#type)))?;
 
-    from_slice(&buf)
+    from_slice(buf)
 }
 
 // --- Private implementation details ----------------------------------------------------------------------------------
