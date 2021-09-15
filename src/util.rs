@@ -1,18 +1,22 @@
 //! Facilities for pretty printing TTLV bytes to text format.
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::io::Cursor;
 use std::ops::Deref;
+use std::str::FromStr;
 
 use crate::de::TtlvDeserializer;
 use crate::error::ErrorKind;
 use crate::types::{
     SerializableTtlvType, TtlvBigInteger, TtlvBoolean, TtlvByteString, TtlvDateTime, TtlvEnumeration, TtlvInteger,
-    TtlvLongInteger, TtlvStateMachine, TtlvStateMachineMode, TtlvTextString, TtlvType,
+    TtlvLongInteger, TtlvStateMachine, TtlvStateMachineMode, TtlvTag, TtlvTextString, TtlvType,
 };
 
 #[derive(Clone, Debug, Default)]
 pub struct PrettyPrinter {
     tag_prefix: String,
+    tag_map: HashMap<TtlvTag, &'static str>,
+}
 
 impl PrettyPrinter {
     pub fn new() -> Self {
@@ -24,6 +28,13 @@ impl PrettyPrinter {
         self.tag_prefix = tag_prefix;
         self
     }
+
+    /// Set the pretty printer's tag map.
+    pub fn with_tag_map(&mut self, tag_map: HashMap<TtlvTag, &'static str>) -> &Self {
+        self.tag_map = tag_map;
+        self
+    }
+
 /// Interpret the given byte slice as TTLV as much as possible and render it to a String in human readable form.
 ///
 /// An example string for a successful KMIP 1.0 create symmetric key response could look like this:
@@ -101,6 +112,7 @@ impl PrettyPrinter {
         mut cursor: &mut Cursor<&[u8]>,
         diagnostic_report: bool,
         strip_tag_prefix: &str,
+            tag_map: &HashMap<TtlvTag, &'static str>,
     ) -> std::result::Result<(String, Option<u64>), ErrorKind> {
         let mut sm = TtlvStateMachine::new(TtlvStateMachineMode::Deserializing);
         let tag = TtlvDeserializer::read_tag(&mut cursor, Some(&mut sm))?;
@@ -122,7 +134,11 @@ impl PrettyPrinter {
                 TtlvType::DateTime    => { format!(" {data:#08X}", data = TtlvDateTime::read(cursor)?.deref()) }
             };
 
+                if let Some(tag_name) = tag_map.get(&tag) {
+                    format!("Tag: {} ({:#06X}), Type: {}, Data:{}\n", tag_name, *tag, typ, data)
+                } else {
             format!("Tag: {:#06X}, Type: {}, Data:{}\n", *tag, typ, data)
+                }
         } else {
             #[rustfmt::skip]
             let data = match typ {
@@ -183,7 +199,7 @@ impl PrettyPrinter {
 
         // Deserialize the next TTLV in the input to a human readable string
         let pos = cursor.position();
-        let res = deserialize_ttlv_to_string(&mut cursor, diagnostic_report, &strip_tag_prefix)
+            let res = deserialize_ttlv_to_string(&mut cursor, diagnostic_report, &self.tag_prefix, &self.tag_map)
             .map_err(|err| pinpoint!(err, pos));
 
         match res {
@@ -243,7 +259,134 @@ impl PrettyPrinter {
                     report.push_str("ERR");
                 }
                 return report;
+                }
             }
         }
+    }
+
+    pub fn from_diag_string(&self, diag_str: &str) -> String {
+        fn read_tag<'a>(s: &'a str, tag_prefix: &str) -> Option<(Option<TtlvTag>, Option<&'a str>)> {
+            // if the next character is ']' it signals the end of a TTLV Structure
+            if let Some(']') = s.chars().next() {
+                return Some((None, Some(&s[1..])));
+            }
+
+            // read until the first non-capital hex character
+            let (tag_str, opt_new_s) = if let Some(bracket_idx) = s.find(|c: char| !matches!(c, '0'..='9' | 'A'..='F'))
+            {
+                (s[..bracket_idx].to_string(), Some(&s[bracket_idx..]))
+            } else if !s.is_empty() {
+                (s.to_string(), None)
+            } else {
+                return None;
+            };
+
+            let tag_str = format!("0x{}{}", tag_prefix, tag_str);
+            if let Ok(tag) = TtlvTag::from_str(&tag_str) {
+                Some((Some(tag), opt_new_s))
+            } else {
+                None
+            }
+        }
+
+        fn read_typ(s: &str) -> Option<(TtlvType, Option<&str>)> {
+            let mut iter = s.chars();
+            if let Some(c) = iter.next() {
+                let new_s = if iter.next().is_some() { Some(&s[1..]) } else { None };
+                match c {
+                    '[' => Some((TtlvType::Structure, new_s)),
+                    'i' => Some((TtlvType::Integer, new_s)),
+                    'l' => Some((TtlvType::LongInteger, new_s)),
+                    'I' => Some((TtlvType::BigInteger, new_s)),
+                    'e' => Some((TtlvType::Enumeration, new_s)),
+                    'b' => Some((TtlvType::Boolean, new_s)),
+                    't' => Some((TtlvType::TextString, new_s)),
+                    'o' => Some((TtlvType::ByteString, new_s)),
+                    'd' => Some((TtlvType::DateTime, new_s)),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
+
+        fn read_val<'a>(
+            indent: &str,
+            s: &'a str,
+            typ: TtlvType,
+            tag_map: &HashMap<TtlvTag, &'static str>,
+            tag_prefix: &str,
+        ) -> Option<(String, Option<&'a str>)> {
+            match typ {
+                TtlvType::Structure => {
+                    // recurse
+                    let indent = format!("  {}", indent);
+                    let next = read_next(&indent, s, tag_map, tag_prefix);
+                    if next.trim().is_empty() {
+                        Some((String::new(), None))
+                    } else {
+                        Some((format!("\n{}", next), None))
+                    }
+                }
+                TtlvType::Enumeration => {
+                    // split at the enumeration value terminator ':' character
+                    match s.split_once(':') {
+                        Some((before, "")) => Some((before.to_string(), None)),
+                        Some((before, after)) => Some((before.to_string(), Some(after))),
+                        None => None,
+                    }
+                }
+                _ => {
+                    // no value to read
+                    Some(("<redacted>".into(), Some(s)))
+                }
+            }
+        }
+
+        fn read_next(in_indent: &str, s: &str, tag_map: &HashMap<TtlvTag, &'static str>, tag_prefix: &str) -> String {
+            let mut out = String::new();
+            let mut outer_s = s;
+            let mut indent = in_indent;
+
+            loop {
+                if let Some((opt_tag, opt_new_s)) = read_tag(outer_s, tag_prefix) {
+                    if let Some(tag) = opt_tag {
+                        out.push_str(indent);
+                        if let Some(tag_name) = tag_map.get(&tag) {
+                            out.push_str(&format!("Tag: {} ({:#06X})", tag_name, *tag));
+                        } else {
+                            out.push_str(&format!("Tag: {:#06X}", *tag));
+                        }
+                        if let Some(s) = opt_new_s {
+                            if let Some((typ, opt_new_s)) = read_typ(s) {
+                                out.push_str(&format!(", Type: {}", typ));
+                                if let Some(s) = opt_new_s {
+                                    if let Some((val, opt_new_s)) = read_val(indent, s, typ, tag_map, tag_prefix) {
+                                        out.push_str(&format!(", Data: {}\n", &val));
+                                        if let Some(s) = opt_new_s {
+                                            outer_s = s;
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if let Some(s) = opt_new_s {
+                        // this is this the end of a structure
+                        indent = &indent[2..];
+                        outer_s = s;
+                        continue;
+                    }
+                }
+
+                break;
+            }
+
+            out
+        }
+
+        read_next("", diag_str, &self.tag_map, &self.tag_prefix)
+            .trim_end()
+            .to_string()
     }
 }
