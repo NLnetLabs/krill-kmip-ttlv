@@ -14,7 +14,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! kmip-ttlv = "0.3.0"
+//! kmip-ttlv = "0.3.1"
 //! serde = "1.0.126"
 //! serde_derive = "1.0.126"
 //! ```
@@ -47,6 +47,24 @@
 //! ```
 //!
 //! To learn more about the low-level API see the [types] module.
+//!
+//! ## Async API
+//!
+//! This crate also supports _deserialization_ from an async reader via the feature flags `async-with-async-std` and
+//! `async-with-tokio`. Only one of these flags can be specified at once and neither can be mixed with the default
+//! 'sync' feature flag. The example below also enables the high level API which is disabled otherwise when you
+//! use `default-features = false`.
+//!
+//! ```toml
+//! [dependencies.kmip-ttlv]
+//! version = "0.3.1"
+//! default-features = false
+//! features = ["async-with-async-std", "high-level"]
+//! ```
+//!
+//! Without an async feature enabled you can only pass something that implements the `Read` trait to [de::from_reader].
+//!
+//! With an async feature enabled you can pass something that implements [async_std::io::ReadExt] or [tokio::io::AsyncReadExt].
 //!
 //! # TTLV format
 //!
