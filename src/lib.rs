@@ -43,7 +43,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! kmip-ttlv = { version = "0.2.0", default-features = false }
+//! kmip-ttlv = { version = "0.3.1", default-features = false }
 //! ```
 //!
 //! To learn more about the low-level API see the [types] module.
