@@ -22,8 +22,9 @@ use crate::{
         self, FieldType, SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLength,
         TtlvLongInteger, TtlvStateMachine, TtlvStateMachineMode, TtlvTextString,
     },
-    types::{AnySyncRead, TtlvBigInteger, TtlvByteString, TtlvTag, TtlvType},
+    types::{TtlvBigInteger, TtlvByteString, TtlvTag, TtlvType},
 };
+use crate::traits::AnySyncRead;
 
 // --- Public interface ------------------------------------------------------------------------------------------------
 

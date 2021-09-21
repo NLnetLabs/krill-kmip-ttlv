@@ -260,6 +260,8 @@ pub mod de;
 pub mod error;
 #[cfg(feature = "high-level")]
 pub mod ser;
+#[cfg(feature = "high-level")]
+pub mod traits;
 pub mod types;
 #[cfg(feature = "high-level")]
 pub mod util;
