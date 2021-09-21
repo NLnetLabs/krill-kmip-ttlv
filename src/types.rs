@@ -54,7 +54,7 @@ use trait_set::trait_set;
 cfg_if::cfg_if! {
     if #[cfg(feature = "sync")] {
         trait_set! {
-            pub trait AnySyncRead = std::io::Read + std::io::Write;
+            pub trait AnySyncRead = std::io::Read;
         }
     } else if #[cfg(feature = "async-with-tokio")] {
         trait_set! {
