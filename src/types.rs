@@ -49,19 +49,17 @@ use std::{
     str::FromStr,
 };
 
-use trait_set::trait_set;
-
 cfg_if::cfg_if! {
     if #[cfg(feature = "sync")] {
-        trait_set! {
+        trait_set::trait_set! {
             pub trait AnySyncRead = std::io::Read;
         }
     } else if #[cfg(feature = "async-with-tokio")] {
-        trait_set! {
+        trait_set::trait_set! {
             pub trait AnySyncRead = tokio::io::AsyncReadExt + std::marker::Unpin;
         }
     } else if #[cfg(feature = "async-with-async-std")] {
-        trait_set! {
+        trait_set::trait_set! {
             pub trait AnySyncRead = async_std::io::ReadExt + std::marker::Unpin;
         }
     }
