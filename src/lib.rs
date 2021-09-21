@@ -64,7 +64,9 @@
 //!
 //! Without an async feature enabled you can only pass something that implements the `Read` trait to [de::from_reader].
 //!
-//! With an async feature enabled you can pass something that implements `async_std::io::ReadExt` or `tokio::io::AsyncReadExt`.
+//! With an async feature enabled you can pass something that implements `async_std::io::ReadExt` or
+//! `tokio::io::AsyncReadExt`. You'll also need to then suffix the call to [de::from_reader] with `.await` and call
+//! it from an `async` function or block.
 //!
 //! # TTLV format
 //!
