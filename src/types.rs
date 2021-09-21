@@ -197,13 +197,6 @@ impl TtlvTag {
         Ok(TtlvTag::from(raw_item_tag))
     }
 
-    #[maybe_async::maybe_async]
-    pub async fn read_anysync<T: AnySyncRead>(src: &mut T) -> Result<Self> {
-        let mut raw_item_tag = [0u8; 3];
-        src.read_exact(&mut raw_item_tag).await?;
-        Ok(TtlvTag::from(raw_item_tag))
-    }
-
     pub fn write<T: Write>(&self, dst: &mut T) -> Result<()> {
         dst.write_all(&<[u8; 3]>::from(self)).map_err(Error::IoError)
     }
