@@ -288,21 +288,21 @@ impl PrettyPrinter {
     /// The pretty output produced by this function when using a suitable `tag_map` would look like this:
     ///
     /// ```text
-    /// Tag: Request Message (0x420078), Type: Structure (0x01), Data: 
-    ///   Tag: Request Header (0x420077), Type: Structure (0x01), Data: 
-    ///     Tag: Protocol Version (0x420069), Type: Structure (0x01), Data: 
+    /// Tag: Request Message (0x420078), Type: Structure (0x01), Data:
+    ///   Tag: Request Header (0x420077), Type: Structure (0x01), Data:
+    ///     Tag: Protocol Version (0x420069), Type: Structure (0x01), Data:
     ///       Tag: Protocol Version Major (0x42006A), Type: Integer (0x02), Data: <redacted>
     ///       Tag: Protocol Version Minor (0x42006B), Type: Integer (0x02), Data: <redacted>
-    ///     Tag: Authentication (0x42000C), Type: Structure (0x01), Data: 
-    ///       Tag: Credential (0x420023), Type: Structure (0x01), Data: 
+    ///     Tag: Authentication (0x42000C), Type: Structure (0x01), Data:
+    ///       Tag: Credential (0x420023), Type: Structure (0x01), Data:
     ///         Tag: Credential Type (0x420024), Type: Enumeration (0x05), Data: 1
-    ///         Tag: Credential Value (0x420025), Type: Structure (0x01), Data: 
+    ///         Tag: Credential Value (0x420025), Type: Structure (0x01), Data:
     ///           Tag: Username (0x420099), Type: TextString (0x07), Data: <redacted>
     ///           Tag: Password (0x4200A1), Type: TextString (0x07), Data: <redacted>
     ///     Tag: Batch Count (0x42000D), Type: Integer (0x02), Data: <redacted>
-    ///   Tag: Batch Item (0x42000F), Type: Structure (0x01), Data: 
+    ///   Tag: Batch Item (0x42000F), Type: Structure (0x01), Data:
     ///     Tag: Operation (0x42005C), Type: Enumeration (0x05), Data: 12
-    ///     Tag: Request Payload (0x420079), Type: Structure (0x01), Data: 
+    ///     Tag: Request Payload (0x420079), Type: Structure (0x01), Data:
     ///       Tag: Unique Identifier (0x420094), Type: TextString (0x07), Data: <redacted>
     /// ```
     ///

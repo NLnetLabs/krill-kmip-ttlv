@@ -22,7 +22,7 @@ use crate::{
         self, FieldType, SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLength,
         TtlvLongInteger, TtlvStateMachine, TtlvStateMachineMode, TtlvTextString,
     },
-    types::{TtlvBigInteger, TtlvByteString, TtlvTag, TtlvType, AnySyncRead},
+    types::{AnySyncRead, TtlvBigInteger, TtlvByteString, TtlvTag, TtlvType},
 };
 
 // --- Public interface ------------------------------------------------------------------------------------------------
@@ -172,7 +172,10 @@ where
     let r#type;
     {
         let mut state = TtlvStateMachine::new(TtlvStateMachineMode::Deserializing);
-        reader.read_exact(&mut buf).await.map_err(|err| pinpoint!(err, cur_pos(0)))?;
+        reader
+            .read_exact(&mut buf)
+            .await
+            .map_err(|err| pinpoint!(err, cur_pos(0)))?;
 
         // Extract and verify the first T (tag)
         let mut cursor = Cursor::new(&mut buf);
