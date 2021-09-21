@@ -49,6 +49,24 @@ use std::{
     str::FromStr,
 };
 
+use trait_set::trait_set;
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "sync")] {
+        trait_set! {
+            pub trait AnySyncRead = std::io::Read + std::io::Write;
+        }
+    } else if #[cfg(feature = "async-with-tokio")] {
+        trait_set! {
+            pub trait AnySyncRead = tokio::io::AsyncReadExt + std::marker::Unpin;
+        }
+    } else if #[cfg(feature = "async-with-async-std")] {
+        trait_set! {
+            pub trait AnySyncRead = async_std::io::ReadExt + std::marker::Unpin;
+        }
+    }
+}
+
 // --- FieldType ------------------------------------------------------------------------------------------------------
 
 /// The type of TTLV header or value field represented by some TTLV bytes.
@@ -176,6 +194,13 @@ impl TtlvTag {
     pub fn read<T: Read>(src: &mut T) -> Result<Self> {
         let mut raw_item_tag = [0u8; 3];
         src.read_exact(&mut raw_item_tag)?;
+        Ok(TtlvTag::from(raw_item_tag))
+    }
+
+    #[maybe_async::maybe_async]
+    pub async fn read_anysync<T: AnySyncRead>(src: &mut T) -> Result<Self> {
+        let mut raw_item_tag = [0u8; 3];
+        src.read_exact(&mut raw_item_tag).await?;
         Ok(TtlvTag::from(raw_item_tag))
     }
 
@@ -686,7 +711,7 @@ impl SerializableTtlvType for TtlvTextString {
     const TTLV_TYPE: TtlvType = TtlvType::TextString;
 
     fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
-        // Read the UTF-8 bytes, without knowing if they are valid UTF-8
+        // AnySyncRead the UTF-8 bytes, without knowing if they are valid UTF-8
         let mut dst = vec![0; value_len as usize];
         src.read_exact(&mut dst)?;
 
@@ -729,7 +754,7 @@ impl SerializableTtlvType for TtlvByteString {
     const TTLV_TYPE: TtlvType = TtlvType::ByteString;
 
     fn read_value<T: Read>(src: &mut T, value_len: u32) -> Result<Self> {
-        // Read the UTF-8 bytes, without knowing if they are valid UTF-8
+        // AnySyncRead the UTF-8 bytes, without knowing if they are valid UTF-8
         let mut dst = vec![0; value_len as usize];
         src.read_exact(&mut dst)?;
         Ok(TtlvByteString(dst))

@@ -220,6 +220,14 @@
 //! For logging or storing of requests and responses for later diagnostic purposes use the
 //! [PrettyPrinter::to_diag_string()] function to render TTLV bytes in a compact textual representation with most
 //! values redacted (only enumeration values are included in the generated string).
+#[cfg(all(feature = "sync", any(feature = "async-with-async-std", feature = "async-with-tokio")))]
+compile_error!("feature \"sync\" cannot be enabled at the same time as either of the \"async-with-async-std\" or \"async-with-tokio\" features");
+
+#[cfg(all(feature = "async-std", not(feature = "async-with-async-std")))]
+compile_error!("do not enable the \"async-std\" feature directly, instead enable the \"async-with-async-std\" feature");
+
+#[cfg(all(feature = "tokio", not(feature = "async-with-tokio")))]
+compile_error!("do not enable the \"tokio\" feature directly, instead enable the \"async-with-tokio\" feature");
 
 #[cfg(feature = "high-level")]
 #[macro_use]

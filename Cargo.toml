@@ -13,13 +13,21 @@ exclude = ["/.github"]
 readme = "README.md"
 build = "build.rs"
 
-[features]
-default = ["high-level"]
-high-level = ["hex", "serde"]
-
 [dependencies]
+async-std = { version = "1.10.0", optional = true }
+cfg-if = "1.0.0"
 hex = {version = "0.4.3", optional = true }
+maybe-async = "0.2.6"
 serde = { version = "1.0.126", optional = true }
+tokio = { version = "1.11.0", features = ["full"], optional = true }
+trait-set = "0.2.0"
+
+[features]
+default = ["high-level", "sync"]
+high-level = ["hex", "serde"]
+sync = ["maybe-async/is_sync"]
+async-with-async-std = ["async-std"]
+async-with-tokio = ["tokio"]
 
 [build-dependencies]
 rustc_version   = "0.4.0"

@@ -22,7 +22,7 @@ use crate::{
         self, FieldType, SerializableTtlvType, TtlvBoolean, TtlvDateTime, TtlvEnumeration, TtlvInteger, TtlvLength,
         TtlvLongInteger, TtlvStateMachine, TtlvStateMachineMode, TtlvTextString,
     },
-    types::{TtlvBigInteger, TtlvByteString, TtlvTag, TtlvType},
+    types::{TtlvBigInteger, TtlvByteString, TtlvTag, TtlvType, AnySyncRead},
 };
 
 // --- Public interface ------------------------------------------------------------------------------------------------
@@ -114,10 +114,11 @@ where
 ///
 /// Attempting to process a stream whose initial TTL header length value is larger the config max_bytes, if any, will
 /// result in`Error::ResponseSizeExceedsLimit`.
-pub fn from_reader<T, R>(mut reader: R, config: &Config) -> Result<T>
+#[maybe_async::maybe_async]
+pub async fn from_reader<T, R>(mut reader: R, config: &Config) -> Result<T>
 where
     T: DeserializeOwned,
-    R: Read,
+    R: AnySyncRead,
 {
     // When reading from a stream we don't know how many bytes to read until we've read the L of the first TTLV in
     // the response stream. As the current implementation jumps around in the response bytes while parsing (see
@@ -171,7 +172,7 @@ where
     let r#type;
     {
         let mut state = TtlvStateMachine::new(TtlvStateMachineMode::Deserializing);
-        reader.read_exact(&mut buf).map_err(|err| pinpoint!(err, cur_pos(0)))?;
+        reader.read_exact(&mut buf).await.map_err(|err| pinpoint!(err, cur_pos(0)))?;
 
         // Extract and verify the first T (tag)
         let mut cursor = Cursor::new(&mut buf);
@@ -212,6 +213,7 @@ where
     buf.resize(response_size as usize, 0);
     reader
         .read_exact(&mut buf[8..])
+        .await
         .map_err(|err| Error::pinpoint(err, ErrorLocation::from(buf.len()).with_tag(tag).with_type(r#type)))?;
 
     from_slice(buf)
