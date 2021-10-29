@@ -37,7 +37,7 @@
 //! val.write(&mut buf); // writes the type, length, value and padding bytes
 //!
 //! // Verify that the serialized bytes match our handcrafted bytes
-//! assert_eq!(&ttlv_wire, buf.as_slice());
+//! assert_eq!(&ttlv_wire, &buf);
 //! # Ok(())
 //! # }
 //! ```

@@ -83,10 +83,10 @@ fn test_io_error_insufficient_read_buffer_size() {
     assert!(from_reader::<RootType, _>(make_reader(ttlv_bytes()), &no_response_size_limit()).is_ok());
 
     // limit the read buffer to several insufficient lengths
-    for max_readable_bytes in [0, 1, 2, 10] {
+    for max_readable_bytes in &[0, 1, 2, 10] {
         let res = from_reader::<RootType, _>(
             make_reader(ttlv_bytes()),
-            &reject_if_response_larger_than(max_readable_bytes),
+            &reject_if_response_larger_than(*max_readable_bytes),
         );
 
         assert_matches!(res.unwrap_err().kind(), ErrorKind::ResponseSizeExceedsLimit(len) if len == &full_input_byte_len);
@@ -97,9 +97,9 @@ fn test_io_error_insufficient_read_buffer_size() {
 fn test_io_error_unexpected_eof_with_reader() {
     use fixtures::simple::*;
 
-    for max_readable_bytes in [0, 1, 2, 10] {
+    for max_readable_bytes in &[0, 1, 2, 10] {
         let err = from_reader::<RootType, _>(
-            make_limited_reader(ttlv_bytes(), max_readable_bytes),
+            make_limited_reader(ttlv_bytes(), *max_readable_bytes),
             &Config::default(),
         )
         .unwrap_err();

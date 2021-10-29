@@ -362,6 +362,12 @@ impl PrettyPrinter {
             tag_map: &HashMap<TtlvTag, &'static str>,
             tag_prefix: &str,
         ) -> Option<(String, Option<&'a str>)> {
+            // split_once isn't available until Rust 1.52
+            pub fn split_once<'a>(s: &'a str, delimiter: char) -> Option<(&'a str, &'a str)> {
+                let (start, end) = s.split_at(s.find(delimiter)?);
+                Some((&start[..=(start.len()-1)], &end[1..]))
+            }
+
             match typ {
                 TtlvType::Structure => {
                     // recurse
@@ -375,7 +381,7 @@ impl PrettyPrinter {
                 }
                 TtlvType::Enumeration => {
                     // split at the enumeration value terminator ':' character
-                    match s.split_once(':') {
+                    match split_once(s, ':') {
                         Some((before, "")) => Some((before.to_string(), None)),
                         Some((before, after)) => Some((before.to_string(), Some(after))),
                         None => None,

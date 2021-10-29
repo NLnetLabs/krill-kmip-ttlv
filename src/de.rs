@@ -608,7 +608,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
         }
 
         if let Some(rule) = variant.strip_prefix("if ") {
-            for (op, handler_fn) in self.matcher_rule_handlers {
+            for (op, handler_fn) in &self.matcher_rule_handlers {
                 if let Some((wanted_tag, wanted_val)) = split_once(rule, op) {
                     return handler_fn(self, wanted_tag.trim(), wanted_val.trim()).map_err(|err| pinpoint!(err, self));
                 }
