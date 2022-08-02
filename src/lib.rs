@@ -14,7 +14,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! kmip-ttlv = "0.3.2"
+//! kmip-ttlv = "0.3.3"
 //! serde = "1.0.126"
 //! serde_derive = "1.0.126"
 //! ```

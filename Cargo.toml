@@ -1,6 +1,6 @@
 [package]
 name = "kmip-ttlv"
-version = "0.3.3-dev"
+version = "0.3.3"
 authors = ["The NLnet Labs RPKI Team <rpki-team@nlnetlabs.nl>"]
 edition = "2018"
 description = "KMIP TTLV (de)serialization"
