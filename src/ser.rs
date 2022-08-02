@@ -32,10 +32,10 @@ where
     W: Write,
 {
     let vec = to_vec(value)?;
-    let res = writer
+    writer
         .write_all(&vec)
         .map_err(|err| pinpoint!(err, ErrorLocation::unknown()))?;
-    Ok(res)
+    Ok(())
 }
 
 impl serde::ser::Error for Error {

@@ -174,7 +174,7 @@ where
     {
         let mut state = TtlvStateMachine::new(TtlvStateMachineMode::Deserializing);
         reader
-            .read_exact(&mut buf)
+            .read_exact(buf)
             .await
             .map_err(|err| pinpoint!(err, cur_pos(0)))?;
 

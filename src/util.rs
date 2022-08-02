@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::ops::Deref;
 use std::str::FromStr;
+use std::fmt::Write;
 
 use crate::de::TtlvDeserializer;
 use crate::error::ErrorKind;
@@ -217,12 +218,7 @@ impl PrettyPrinter {
                     // Add (with correct indentation) the human readable result of deserialization to the "report" built up
                     // so far.
                     if !diagnostic_report {
-                        report.push_str(&format!(
-                            "{:width$}{ttlv_string}",
-                            "",
-                            width = indent,
-                            ttlv_string = &ttlv_string
-                        ));
+                        let _ = write!(report, "{:width$}{ttlv_string}", width = indent, ttlv_string = &ttlv_string);
                     } else {
                         report.push_str(&ttlv_string);
                     }
@@ -259,12 +255,7 @@ impl PrettyPrinter {
                 Err(err) => {
                     // Oops, we couldn't deserialize a TTLV from the input stream at the current cursor position
                     if !diagnostic_report {
-                        report.push_str(&format!(
-                            "ERROR: {} (cursor pos={}, end={:?})",
-                            err,
-                            cursor.position(),
-                            cur_struct_end
-                        ));
+                        let _ = write!(report, "ERROR: {} (cursor pos={}, end={:?})", err, cursor.position(), cur_struct_end);
                     } else {
                         report.push_str("ERR");
                     }
@@ -363,7 +354,7 @@ impl PrettyPrinter {
             tag_prefix: &str,
         ) -> Option<(String, Option<&'a str>)> {
             // split_once isn't available until Rust 1.52
-            pub fn split_once<'a>(s: &'a str, delimiter: char) -> Option<(&'a str, &'a str)> {
+            pub fn split_once(s: &str, delimiter: char) -> Option<(&str, &str)> {
                 let (start, end) = s.split_at(s.find(delimiter)?);
                 Some((&start[..=(start.len()-1)], &end[1..]))
             }
@@ -404,16 +395,16 @@ impl PrettyPrinter {
                     if let Some(tag) = opt_tag {
                         out.push_str(indent);
                         if let Some(tag_name) = tag_map.get(&tag) {
-                            out.push_str(&format!("Tag: {} ({:#06X})", tag_name, *tag));
+                            let _ = write!(out, "Tag: {} ({:#06X})", tag_name, *tag);
                         } else {
-                            out.push_str(&format!("Tag: {:#06X}", *tag));
+                            let _ = write!(out, "Tag: {:#06X}", *tag);
                         }
                         if let Some(s) = opt_new_s {
                             if let Some((typ, opt_new_s)) = read_typ(s) {
-                                out.push_str(&format!(", Type: {}", typ));
+                                let _ = write!(out, ", Type: {}", typ);
                                 if let Some(s) = opt_new_s {
                                     if let Some((val, opt_new_s)) = read_val(indent, s, typ, tag_map, tag_prefix) {
-                                        out.push_str(&format!(", Data: {}\n", &val));
+                                        let _ = writeln!(out, "Data: {}", &val);
                                         if let Some(s) = opt_new_s {
                                             outer_s = s;
                                             continue;
