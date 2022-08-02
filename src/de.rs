@@ -15,6 +15,7 @@ use serde::{
     Deserialize, Deserializer,
 };
 
+use crate::traits::AnySyncRead;
 use crate::{
     error::Error,
     error::{ErrorKind, ErrorLocation, MalformedTtlvError, Result, SerdeError},
@@ -24,7 +25,6 @@ use crate::{
     },
     types::{TtlvBigInteger, TtlvByteString, TtlvTag, TtlvType},
 };
-use crate::traits::AnySyncRead;
 
 // --- Public interface ------------------------------------------------------------------------------------------------
 
@@ -173,10 +173,7 @@ where
     let r#type;
     {
         let mut state = TtlvStateMachine::new(TtlvStateMachineMode::Deserializing);
-        reader
-            .read_exact(buf)
-            .await
-            .map_err(|err| pinpoint!(err, cur_pos(0)))?;
+        reader.read_exact(buf).await.map_err(|err| pinpoint!(err, cur_pos(0)))?;
 
         // Extract and verify the first T (tag)
         let mut cursor = Cursor::new(&mut buf);
