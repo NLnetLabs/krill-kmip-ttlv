@@ -597,7 +597,7 @@ impl<'de: 'c, 'c> TtlvDeserializer<'de, 'c> {
 
     fn is_variant_applicable(&self, variant: &'static str) -> Result<bool> {
         // str::split_once() wasn't stablized until Rust 1.52.0 but as we want to be usable by Krill, and Krill
-        // currently supports Rust >= 1.47.0, we use our own split_once() implementation.
+        // supported Rust >= 1.49.0 at the time of writing, we use our own split_once() implementation.
         pub fn split_once<'a>(value: &'a str, delimiter: &str) -> Option<(&'a str, &'a str)> {
             value
                 .find(delimiter)
