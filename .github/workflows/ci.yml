@@ -37,5 +37,5 @@ jobs:
       run: cargo build --verbose ${{ matrix.args }} --locked
 
     - name: Run tests
-      if: ${{ matrix.rust != "1.49.0" }}
+      if: matrix.rust != '1.49.0'
       run: cargo test --verbose ${{ matrix.args }} --locked
