@@ -11,7 +11,7 @@ keywords = ["KMIP", "TTLV", "serde", "serialization"]
 categories = ["cryptography", "data-structures", "encoding", "parser-implementations"]
 exclude = ["/.github"]
 readme = "README.md"
-rust-version = "1.54.0"
+build = "build.rs"
 
 [dependencies]
 async-std = { version = "1.10.0", optional = true }
