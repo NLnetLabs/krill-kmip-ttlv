@@ -14,10 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Test against Rust 1.54.0 because in build.rs we say that is the oldest supported version.
-        # Test against beta Rust to get early warning of any problems that might occur with the upcoming Rust release.
+        # Build against Rust 1.49.0 because in build.rs we say that is the oldest supported version.
+        # Build against beta Rust to get early warning of any problems that might occur with the upcoming Rust release.
+        # Test against Rust 1.54.0 because the test suite needs newer Rust than the library itself.
         # Order: oldest Rust to newest Rust.
-        rust: [1.54.0, stable, beta]
+        rust: [1.49.0, 1.54.0, stable, beta]
         args: [
           "",
           "--no-default-features --features sync",
@@ -36,4 +37,5 @@ jobs:
       run: cargo build --verbose ${{ matrix.args }} --locked
 
     - name: Run tests
+      if: ${{ matrix.rust != "1.49.0" }}
       run: cargo test --verbose ${{ matrix.args }} --locked
