@@ -220,7 +220,7 @@ impl PrettyPrinter {
                     if !diagnostic_report {
                         let _ = write!(
                             report,
-                            "{:width$}{ttlv_string}",
+                            "{width:width$}{ttlv_string}",
                             width = indent,
                             ttlv_string = &ttlv_string
                         );
